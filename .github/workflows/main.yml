@@ -1,0 +1,35 @@
+
+name: Railway Reservation System - CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-check:
+    name: Check repository setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify README exists
+        run: test -f README.md
+
+      - name: Verify repository contains tracked files
+        run: |
+          echo "Checking repository files..."
+          git ls-files
+          test -n "$(git ls-files)"
+
+      - name: Report success
+        run: echo "Repository checks passed successfully."
