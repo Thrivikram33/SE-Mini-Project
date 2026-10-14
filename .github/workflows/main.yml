@@ -1,10 +1,10 @@
-
 name: Railway Reservation System - CI
 
 on:
   push:
     branches:
       - main
+      - feature/**
   pull_request:
     branches:
       - main
@@ -14,22 +14,58 @@ permissions:
   contents: read
 
 jobs:
-  repository-check:
-    name: Check repository setup
+  frontend:
+    name: Frontend lint and production build
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify README exists
-        run: test -f README.md
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Verify repository contains tracked files
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  backend:
+    name: Backend syntax and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Check backend syntax
+        working-directory: backend
         run: |
-          echo "Checking repository files..."
-          git ls-files
-          test -n "$(git ls-files)"
+          npm run lint
+          node --check scripts/migrate.js
+          node --check scripts/seed-demo.js
+          node --check scripts/promote-demo-admin.js
 
-      - name: Report success
-        run: echo "Repository checks passed successfully."
+      - name: Run backend unit tests
+        working-directory: backend
+        run: npm test
