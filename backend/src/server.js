@@ -7,7 +7,7 @@ const session = require('express-session')
 const pool = require('./config/db')
 const authRoutes = require('./routes/auth')
 const registrationRoutes = require('./routes/registrationRoutes')
-
+const seatSelectionRoutes = require('./routes/seatSelectionRoutes')
 const app = express()
 const PORT = Number(process.env.PORT) || 5000
 
@@ -56,7 +56,7 @@ app.use('/api/auth/register', registrationRoutes)
 
 // Login, logout, and other authentication routes.
 app.use('/api/auth', authRoutes)
-
+app.use('/api', seatSelectionRoutes)
 app.use((_req, res) => {
   res.status(404).json({
     error: 'NOT_FOUND',
@@ -65,8 +65,21 @@ app.use((_req, res) => {
 })
 
 app.use((err, _req, res, _next) => {
+  if (Number.isInteger(err.statusCode) && err.statusCode >= 400 && err.statusCode < 500) {
+    const errorCode = err.statusCode === 400
+      ? 'INVALID_REQUEST'
+      : err.statusCode === 404
+        ? 'NOT_FOUND'
+        : 'REQUEST_FAILED'
+
+    return res.status(err.statusCode).json({
+      error: errorCode,
+      message: err.message,
+    })
+  }
+
   console.error('Request processing failed:', err.message)
-  res.status(500).json({
+  return res.status(500).json({
     error: 'INTERNAL_SERVER_ERROR',
     message: 'An unexpected server error occurred.',
   })
