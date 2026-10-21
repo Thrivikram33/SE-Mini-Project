@@ -120,3 +120,87 @@ test('invalid passenger data fails before opening a database transaction', async
   await assert.rejects(service.create(12, { ...request, passengers: [{ name: '', age: 150 }] }), (error) => error.status === 400)
   assert.equal(connected, false)
 })
+
+test('database failure during passenger insertion rolls back booking transaction and releases connection', async () => {
+  const statements = []
+  let released = false
+
+  const connection = {
+    async beginTransaction() {
+      statements.push('BEGIN')
+    },
+    async commit() {
+      statements.push('COMMIT')
+    },
+    async rollback() {
+      statements.push('ROLLBACK')
+    },
+    release() {
+      released = true
+    },
+    async execute(sql) {
+      statements.push(sql)
+
+      if (sql.includes('FROM schedules sch')) {
+        return [[{
+          scheduleId: 4,
+          journeyDate: '2030-05-12',
+          scheduleStatus: 'SCHEDULED',
+          trainNumber: 'D-100',
+          trainName: 'Demo Coastal Express',
+          fare: '450.00',
+        }]]
+      }
+
+      if (sql.includes('FROM route_stops origin_stop')) {
+        return [[{
+          originStationId: 1,
+          destinationStationId: 2,
+          originCode: 'DMB',
+          originName: 'Demo Station Bengaluru',
+          destinationCode: 'DMC',
+          destinationName: 'Demo Station Chennai',
+        }]]
+      }
+
+      if (sql.includes('FROM seats se')) {
+        return [[{
+          seatId: 8,
+          seatNumber: '1A',
+          status: 'AVAILABLE',
+          classType: 'CC',
+          scheduleId: 4,
+        }]]
+      }
+
+      if (sql.includes('INSERT INTO bookings')) {
+        return [{ insertId: 31 }]
+      }
+
+      if (sql.includes('INSERT INTO passengers')) {
+        throw new Error('Simulated passenger insert failure')
+      }
+
+      return [{ affectedRows: 1 }]
+    },
+  }
+
+  const service = createBookingService(
+    { async getConnection() { return connection } },
+    { async charge() { return { success: true } } },
+    {
+      today: () => '2030-01-01',
+      pnrFactory: () => 'PNR2345678',
+    },
+  )
+
+  await assert.rejects(
+    service.create(12, request),
+    /Simulated passenger insert failure/,
+  )
+
+  assert.ok(statements.includes('BEGIN'))
+  assert.ok(statements.includes('ROLLBACK'))
+  assert.equal(statements.includes('COMMIT'), false)
+  assert.equal(released, true)
+})
