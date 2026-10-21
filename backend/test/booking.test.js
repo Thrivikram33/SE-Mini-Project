@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createBookingService } from '../src/bookings/bookingService.js'
 import { createPaymentSimulator } from '../src/bookings/paymentSimulator.js'
@@ -51,6 +51,27 @@ test('successful simulated payment commits unique PNR and seat allocation togeth
   assert.ok(statements.some((sql) => sql.includes("UPDATE seats SET status = 'BOOKED'")))
   assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes('UPDATE seats')))
   assert.equal(statements.includes('ROLLBACK'), false)
+  assert.ok(
+    statements.some((sql) => sql.includes('INSERT INTO passengers')),
+    'Passenger details should be saved',
+  )
+  assert.ok(
+    statements.some((sql) => sql.includes('INSERT INTO booking_seats')),
+    'The seat should be linked to the booking',
+  )
+  assert.ok(
+    statements.some(
+      (sql) => sql.includes('INSERT INTO payments') && sql.includes("'SUCCESS'"),
+    ),
+    'A successful payment record should be written',
+  )
+  assert.ok(
+    statements.indexOf('COMMIT') >
+      statements.findIndex(
+        (sql) => sql.includes('INSERT INTO payments') && sql.includes("'SUCCESS'"),
+      ),
+    'The transaction should commit after the successful payment record',
+  )
 })
 
 test('failed simulated payment records failure but does not consume a seat or return a PNR', async () => {
