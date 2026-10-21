@@ -6,6 +6,7 @@ const express = require('express')
 const helmet = require('helmet')
 const pool = require('./config/db')
 const authRoutes = require('./routes/auth')
+const registrationRoutes = require('./routes/registrationRoutes')
 
 const app = express()
 const PORT = Number(process.env.PORT) || 5000
@@ -30,6 +31,7 @@ app.get('/api/health', async (_req, res) => {
   }
 })
 
+app.use('/api/auth/register', registrationRoutes)
 app.use('/api/auth', authRoutes)
 
 app.use((_req, res) => {
@@ -49,7 +51,7 @@ app.use((err, _req, res, _next) => {
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Railway Reservation API listening on port ${PORT}`)
+   console.log('Railway Reservation API listening on port ' + PORT)
   })
 }
 
