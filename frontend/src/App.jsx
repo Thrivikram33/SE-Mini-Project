@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import SeatSelectionPage from './SeatSelectionPage'
+import TrainSearchPage from './TrainSearchPage'
 function HomePage() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -195,12 +196,7 @@ function AppLayout() {
         <Route path="/" element={<HomePage />} />
         <Route
           path="/trains"
-          element={
-            <PlaceholderPage
-              title="Find trains"
-              description="Train search, schedules, availability, classes, and fares will be implemented against the approved requirements."
-            />
-          }
+          element={<TrainSearchPage />}
         />
         <Route
           path="/bookings"
