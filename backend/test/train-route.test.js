@@ -83,10 +83,19 @@ test('GET /api/trains/search uses the established 400 validation response', asyn
 
 test('GET /api/trains/search returns a safe 500 response for database failures', async () => {
   searchBehavior = async () => { throw new Error('private SQL or credential detail') }
-  const response = await getSearch(createApp())
+  const logMessages = []
+  const originalError = console.error
+  console.error = (...parts) => logMessages.push(parts.join(' '))
+  let response
+  try {
+    response = await getSearch(createApp())
+  } finally {
+    console.error = originalError
+  }
   assert.equal(response.status, 500)
   assert.deepEqual(response.body, {
     error: 'INTERNAL_SERVER_ERROR',
     message: 'An unexpected server error occurred.',
   })
+  assert.deepEqual(logMessages, ['Train search request failed.'])
 })

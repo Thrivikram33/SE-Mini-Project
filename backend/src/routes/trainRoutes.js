@@ -12,4 +12,20 @@ router.get('/search', async (req, res, next) => {
   }
 })
 
+router.use((error, _req, res, _next) => {
+  if (error.statusCode === 400) {
+    return res.status(400).json({
+      error: 'INVALID_REQUEST',
+      message: error.message,
+    })
+  }
+
+  // Keep database and driver details out of the shared error logger.
+  console.error('Train search request failed.')
+  return res.status(500).json({
+    error: 'INTERNAL_SERVER_ERROR',
+    message: 'An unexpected server error occurred.',
+  })
+})
+
 module.exports = router
