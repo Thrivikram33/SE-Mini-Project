@@ -3,29 +3,27 @@ const assert = require('node:assert/strict')
 const Module = require('node:module')
 const path = require('node:path')
 
-const serverPath = path.resolve(__dirname, '../src/server.js')
-const authPath = path.resolve(__dirname, '../src/routes/auth.js')
-const registrationServicePath = path.resolve(
-  __dirname,
-  '../src/services/registrationService.js',
-)
-
+const dbPath = path.resolve(__dirname, '../src/config/db.js')
 const originalLoad = Module._load
+const originalResolveFilename = Module._resolveFilename
 
 Module._load = function (request, parent, isMain) {
-  if (
-    parent &&
-    (
-      (parent.filename === serverPath && request === './config/db') ||
-      (parent.filename === authPath && request === '../config/db') ||
-      (
-        parent.filename === registrationServicePath &&
-        request === '../../config/db'
+  if (parent) {
+    try {
+      const resolvedPath = originalResolveFilename.call(
+        Module,
+        request,
+        parent,
+        isMain,
       )
-    )
-  ) {
-    return {
-      query: async () => [[{ result: 1 }]],
+
+      if (resolvedPath === dbPath) {
+        return {
+          query: async () => [[{ result: 1 }]],
+        }
+      }
+    } catch {
+      // Let Node handle unresolved modules normally.
     }
   }
 
@@ -36,7 +34,8 @@ let app
 
 try {
   process.env.SESSION_SECRET =
-    process.env.SESSION_SECRET || 'test-only-session-secret-not-for-production'
+    process.env.SESSION_SECRET ||
+    'test-only-session-secret-not-for-production'
 
   app = require('../src/server')
 } finally {
@@ -63,11 +62,14 @@ async function getHealthResponse() {
   }
 }
 
-test('health endpoint reports API status when database query succeeds', async () => {
-  const response = await getHealthResponse()
+test(
+  'health endpoint reports API status when database query succeeds',
+  async () => {
+    const response = await getHealthResponse()
 
-  assert.equal(response.status, 200)
-  assert.equal(response.body.status, 'ok')
-  assert.equal(response.body.service, 'railway-reservation-api')
-  assert.equal(response.body.database, 'connected')
-})
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(response.body.service, 'railway-reservation-api')
+    assert.equal(response.body.database, 'connected')
+  },
+)
