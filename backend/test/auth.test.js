@@ -4,15 +4,17 @@ const Module = require('node:module')
 const path = require('node:path')
 
 const serverPath = path.resolve(__dirname, '../src/server.js')
-const dbPath = path.resolve(__dirname, '../src/config/db.js')
+const authPath = path.resolve(__dirname, '../src/routes/auth.js')
 
 const originalLoad = Module._load
 
 Module._load = function (request, parent, isMain) {
   if (
     parent &&
-    parent.filename === serverPath &&
-    request === './config/db'
+    (
+      (parent.filename === serverPath && request === './config/db') ||
+      (parent.filename === authPath && request === '../config/db')
+    )
   ) {
     return {
       query: async () => [[{ result: 1 }]],
