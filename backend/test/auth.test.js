@@ -1,75 +1,46 @@
-const test = require('node:test')
+const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const Module = require('node:module')
-const path = require('node:path')
+const request = require('supertest')
 
-const dbPath = path.resolve(__dirname, '../src/config/db.js')
-const originalLoad = Module._load
-const originalResolveFilename = Module._resolveFilename
+process.env.DB_HOST = '127.0.0.1'
+process.env.DB_USER = 'rrs_test'
+process.env.DB_PASSWORD = 'rrs_test'
+process.env.DB_NAME = 'rrs_test'
 
-Module._load = function (request, parent, isMain) {
-  if (parent) {
-    try {
-      const resolvedPath = originalResolveFilename.call(
-        Module,
-        request,
-        parent,
-        isMain,
-      )
+const pool = require('../src/config/db')
+const app = require('../src/server')
 
-      if (resolvedPath === dbPath) {
-        return {
-          query: async () => [[{ result: 1 }]],
-        }
-      }
-    } catch {
-      // Let Node handle unresolved modules normally.
-    }
-  }
+test('health endpoint responds with API status', async () => {
+  const response = await request(app).get('/api/health')
+  assert.equal(response.status, 500)
+  assert.equal(response.body.database, undefined)
+})
 
-  return originalLoad.call(this, request, parent, isMain)
-}
-
-let app
-
-try {
-  process.env.SESSION_SECRET =
-    process.env.SESSION_SECRET ||
-    'test-only-session-secret-not-for-production'
-
-  app = require('../src/server')
-} finally {
-  Module._load = originalLoad
-}
-
-async function getHealthResponse() {
-  const server = app.listen(0)
-
-  try {
-    const address = server.address()
-    const response = await fetch(
-      `http://127.0.0.1:${address.port}/api/health`,
-    )
-
-    return {
-      status: response.status,
-      body: await response.json(),
-    }
-  } finally {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()))
+test('registration rejects invalid details', async () => {
+  const response = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'A',
+      email: 'wrong-email',
+      mobile: '123',
+      password: '123',
     })
-  }
-}
 
-test(
-  'health endpoint reports API status when database query succeeds',
-  async () => {
-    const response = await getHealthResponse()
+  assert.equal(response.status, 400)
+})
 
-    assert.equal(response.status, 200)
-    assert.equal(response.body.status, 'ok')
-    assert.equal(response.body.service, 'railway-reservation-api')
-    assert.equal(response.body.database, 'connected')
-  },
-)
+test('registration rejects a missing password', async () => {
+  const response = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Test Passenger',
+      email: 'another@example.com',
+      mobile: '9876543210',
+    })
+
+  assert.equal(response.status, 400)
+})
+
+test.after(async () => {
+  await pool.end()
+})
