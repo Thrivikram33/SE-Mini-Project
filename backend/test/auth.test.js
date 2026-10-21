@@ -5,6 +5,10 @@ const path = require('node:path')
 
 const serverPath = path.resolve(__dirname, '../src/server.js')
 const authPath = path.resolve(__dirname, '../src/routes/auth.js')
+const registrationServicePath = path.resolve(
+  __dirname,
+  '../src/services/registrationService.js',
+)
 
 const originalLoad = Module._load
 
@@ -13,7 +17,11 @@ Module._load = function (request, parent, isMain) {
     parent &&
     (
       (parent.filename === serverPath && request === './config/db') ||
-      (parent.filename === authPath && request === '../config/db')
+      (parent.filename === authPath && request === '../config/db') ||
+      (
+        parent.filename === registrationServicePath &&
+        request === '../../config/db'
+      )
     )
   ) {
     return {
