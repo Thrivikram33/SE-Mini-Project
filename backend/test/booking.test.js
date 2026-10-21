@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createBookingService } from '../src/bookings/bookingService.js'
 import { createPaymentSimulator } from '../src/bookings/paymentSimulator.js'
@@ -51,6 +51,27 @@ test('successful simulated payment commits unique PNR and seat allocation togeth
   assert.ok(statements.some((sql) => sql.includes("UPDATE seats SET status = 'BOOKED'")))
   assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes('UPDATE seats')))
   assert.equal(statements.includes('ROLLBACK'), false)
+  assert.ok(
+    statements.some((sql) => sql.includes('INSERT INTO passengers')),
+    'Passenger details should be saved',
+  )
+  assert.ok(
+    statements.some((sql) => sql.includes('INSERT INTO booking_seats')),
+    'The seat should be linked to the booking',
+  )
+  assert.ok(
+    statements.some(
+      (sql) => sql.includes('INSERT INTO payments') && sql.includes("'SUCCESS'"),
+    ),
+    'A successful payment record should be written',
+  )
+  assert.ok(
+    statements.indexOf('COMMIT') >
+      statements.findIndex(
+        (sql) => sql.includes('INSERT INTO payments') && sql.includes("'SUCCESS'"),
+      ),
+    'The transaction should commit after the successful payment record',
+  )
 })
 
 test('failed simulated payment records failure but does not consume a seat or return a PNR', async () => {
@@ -64,13 +85,23 @@ test('failed simulated payment records failure but does not consume a seat or re
       if (sql.includes('FROM schedules sch')) return [[{ journeyDate: '2030-05-12', scheduleStatus: 'SCHEDULED', trainNumber: 'D-100', trainName: 'Demo', fare: '450.00' }]]
       if (sql.includes('FROM route_stops origin_stop')) return [[{ originStationId: 1, destinationStationId: 2, originCode: 'DMB', originName: 'Demo Station Bengaluru', destinationCode: 'DMC', destinationName: 'Demo Station Chennai' }]]
       if (sql.includes('FROM seats se')) return [[{ seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4 }]]
-      if (sql.includes("'PAYMENT_FAILED'")) { failedBookingWritten = true; return [{ insertId: 32 }] }
-      return [{ insertId: 32, affectedRows: 1 }]
+      if (sql.includes('INSERT INTO bookings')) {
+        failedBookingWritten = true;
+
+        assert.match(sql, /VALUES\s*\(\s*NULL/i);
+        assert.match(sql, /'PAYMENT_FAILED'/);
+
+        return [{ insertId: 32 }];
+    }
     },
   }
   const service = createBookingService({ async getConnection() { return connection } }, createPaymentSimulator({ nodeEnv: 'development' }), { today: () => '2030-01-01' })
   await assert.rejects(service.create(12, { ...request, paymentOutcome: 'failure' }), (error) => error.status === 402 && error.code === 'PAYMENT_FAILED')
   assert.equal(failedBookingWritten, true)
+  assert.ok(
+    statements.some((sql) => sql.includes('INSERT INTO payments')),
+    'A failed payment record should be written',
+  );
   assert.ok(statements.includes('COMMIT'))
   assert.equal(statements.some((sql) => sql.includes('UPDATE seats')), false)
   assert.equal(statements.some((sql) => sql.includes('INSERT INTO booking_seats')), false)
