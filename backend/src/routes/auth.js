@@ -1,69 +1,130 @@
+const express = require('express')
+const bcrypt = require('bcryptjs')
+const { body, validationResult } = require('express-validator')
+const pool = require('../config/db')
 
-const express = require("express");
-const bcrypt = require("bcryptjs");
-const { body, validationResult } = require("express-validator");
-const pool = require("../config/db");
+const router = express.Router()
 
-const router = express.Router();
-
+// Log in a passenger or administrator.
 router.post(
-  "/register",
+  '/login',
   [
-    body("full_name")
-      .trim()
-      .isLength({ min: 2, max: 100 })
-      .withMessage("Name must contain 2–100 characters."),
-    body("email")
+    body('email')
+      .isString()
       .trim()
       .isEmail()
-      .normalizeEmail()
-      .withMessage("Enter a valid email address."),
-    body("mobile")
-      .trim()
-      .matches(/^[0-9]{10,15}$/)
-      .withMessage("Mobile number must contain 10–15 digits."),
-    body("password")
-      .isLength({ min: 8, max: 72 })
-      .withMessage("Password must contain 8–72 characters.")
+      .withMessage('Enter a valid email address.'),
+    body('password')
+      .isString()
+      .notEmpty()
+      .withMessage('Password is required.'),
   ],
   async (req, res) => {
-    const errors = validationResult(req);
+    const errors = validationResult(req)
 
     if (!errors.isEmpty()) {
       return res.status(400).json({
-        message: "Invalid registration details.",
-        errors: errors.array()
-      });
+        message: 'Invalid login details.',
+        errors: errors.array(),
+      })
     }
 
-    const { full_name, email, mobile, password } = req.body;
+    const email = req.body.email.trim().toLowerCase()
+    const { password } = req.body
 
     try {
-      const passwordHash = await bcrypt.hash(password, 12);
+      const [users] = await pool.execute(
+        `SELECT user_id, name, email, password_hash, role
+         FROM users
+         WHERE email = ?
+         LIMIT 1`,
+        [email],
+      )
 
-      await pool.execute(
-        `INSERT INTO users (full_name, email, mobile, password_hash)
-         VALUES (?, ?, ?, ?)`,
-        [full_name, email, mobile, passwordHash]
-      );
+      const user = users[0]
 
-      return res.status(201).json({
-        message: "Passenger registered successfully."
-      });
-    } catch (error) {
-      if (error.code === "ER_DUP_ENTRY") {
-        return res.status(409).json({
-          message: "An account with this email already exists."
-        });
+      if (
+        !user ||
+        !(await bcrypt.compare(password, user.password_hash))
+      ) {
+        return res.status(401).json({
+          message: 'Invalid email or password.',
+        })
       }
 
-      console.error("Registration failed:", error.code || "UNKNOWN_ERROR");
+      if (!req.session) {
+        return res.status(500).json({
+          message: 'Session support is not configured.',
+        })
+      }
+
+      // Regenerate the session to prevent session fixation.
+      req.session.regenerate((regenerateError) => {
+        if (regenerateError) {
+          return res.status(500).json({
+            message: 'Login could not be completed.',
+          })
+        }
+
+        req.session.user = {
+          userId: user.user_id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        }
+
+        req.session.save((saveError) => {
+          if (saveError) {
+            return res.status(500).json({
+              message: 'Login could not be completed.',
+            })
+          }
+
+          return res.status(200).json({
+            message: 'Login successful.',
+            user: req.session.user,
+          })
+        })
+      })
+    } catch (error) {
+      console.error(
+        'Login failed:',
+        error.code || 'UNKNOWN_ERROR',
+      )
 
       return res.status(500).json({
-        message: "Registration could not be completed."
-      });
+        message: 'Login could not be completed.',
+      })
     }
-  }
-);
+  },
+)
 
-module.exports = router;
+// Log out and invalidate the current session.
+router.post('/logout', (req, res) => {
+  if (!req.session) {
+    return res.status(200).json({
+      message: 'Logged out successfully.',
+    })
+  }
+
+  req.session.destroy((error) => {
+    if (error) {
+      return res.status(500).json({
+        message: 'Logout could not be completed.',
+      })
+    }
+
+    res.clearCookie('rrs.sid', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    })
+
+    return res.status(200).json({
+      message: 'Logged out successfully.',
+    })
+  })
+})
+
+module.exports = router
