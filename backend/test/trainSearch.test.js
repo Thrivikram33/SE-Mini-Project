@@ -150,6 +150,8 @@ test('uses ordered route stops and filters inactive trains and invalid schedules
   assert.match(sql, /seat\.status = 'AVAILABLE'/)
   assert.match(sql, /allocation\.allocation_status IN \('HELD', 'CONFIRMED'\)/)
   assert.match(sql, /active_booking\.status IN \('PENDING_PAYMENT', 'CONFIRMED'\)/)
+  assert.match(sql, /COUNT\(DISTINCT CASE/)
+  assert.match(sql, /WHEN seat\.status = 'AVAILABLE' AND active_booking\.booking_id IS NULL/)
 })
 
 test('returns an empty trains collection when there are no route/date matches', async () => {
