@@ -279,3 +279,31 @@ test('passenger-only route allows a passenger', async () => {
   assert.equal(result.status, 200)
   assert.equal(result.body.message, 'Passenger access granted')
 })
+
+test('login error logs never contain the submitted plaintext password', async () => {
+  const password = 'SecretPassword987!'
+  const originalConsoleError = console.error
+  const loggedOutput = []
+
+  databaseBehavior = async () => {
+    const error = new Error('Database unavailable')
+    error.code = 'TEST_DATABASE_ERROR'
+    throw error
+  }
+
+  console.error = (...args) => loggedOutput.push(args.join(' '))
+
+  try {
+    const result = await requestJson(createTestApp(), '/login', {
+      email: 'passenger@example.com',
+      password,
+    })
+
+    assert.equal(result.status, 500)
+    assert.equal(loggedOutput.length, 1)
+    assert.equal(loggedOutput.join(' ').includes(password), false)
+    assert.equal(loggedOutput.join(' ').includes('TEST_DATABASE_ERROR'), true)
+  } finally {
+    console.error = originalConsoleError
+  }
+})
