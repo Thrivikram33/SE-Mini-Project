@@ -101,3 +101,32 @@ test('maps duplicate database entries to HTTP 409', async () => {
     fakePool.execute = originalExecute
   }
 })
+test('stores a salted bcrypt hash instead of the plaintext password', async () => {
+  const bcrypt = require('bcryptjs')
+  const originalExecute = fakePool.execute
+  const password = 'StrongPass123'
+  let insertedValues
+
+  fakePool.execute = async (_sql, values) => {
+    insertedValues = values
+    return [{ insertId: 102 }]
+  }
+
+  try {
+    await registerPassenger({
+      name: 'Hash Test Passenger',
+      email: 'hash-test@example.com',
+      password,
+    })
+
+    assert.ok(insertedValues, 'Expected database insert values')
+    const storedHash = insertedValues[3]
+
+    assert.notEqual(storedHash, password)
+    assert.match(storedHash, /^\$2[aby]\$12\$/)
+    assert.equal(await bcrypt.compare(password, storedHash), true)
+    assert.equal(await bcrypt.compare('WrongPassword123', storedHash), false)
+  } finally {
+    fakePool.execute = originalExecute
+  }
+})
