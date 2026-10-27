@@ -2,6 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const path = require('node:path')
+const fs = require('node:fs')
 
 const servicePath = path.resolve(__dirname, '../src/services/trainSearchService.js')
 const originalLoad = Module._load
@@ -149,7 +150,21 @@ test('uses ordered route stops and filters inactive trains and invalid schedules
   assert.match(sql, /s\.journey_date = DATE_SUB\(\?, INTERVAL source_stop\.day_offset DAY\)/)
   assert.match(sql, /seat\.status = 'AVAILABLE'/)
   assert.match(sql, /allocation\.allocation_status IN \('HELD', 'CONFIRMED'\)/)
-  assert.match(sql, /active_booking\.status IN \('PENDING_PAYMENT', 'CONFIRMED'\)/)
+  assert.match(sql, /allocation\.booking_seat_id IS NULL/)
+  assert.doesNotMatch(sql, /active_booking\.status/)
+  assert.match(sql, /COUNT\(DISTINCT CASE/)
+  assert.match(sql, /WHEN seat\.status = 'AVAILABLE' AND allocation\.booking_seat_id IS NULL/)
+})
+
+test('database schema allows at most one active allocation per seat', () => {
+  const schemaPath = path.resolve(__dirname, '../../database/migrations/001_initial_schema.sql')
+  const schema = fs.readFileSync(schemaPath, 'utf8')
+
+  assert.match(
+    schema,
+    /active_seat_id BIGINT UNSIGNED GENERATED ALWAYS AS \([\s\S]*?WHEN allocation_status IN \('HELD', 'CONFIRMED'\) THEN seat_id[\s\S]*?ELSE NULL[\s\S]*?\) STORED/,
+  )
+  assert.match(schema, /UNIQUE KEY uq_active_seat_allocation \(active_seat_id\)/)
 })
 
 test('returns an empty trains collection when there are no route/date matches', async () => {

@@ -100,7 +100,7 @@ async function searchTrains({ source, destination, date }) {
        fare.amount AS fare,
        fare.currency AS currency,
        COUNT(DISTINCT CASE
-         WHEN seat.status = 'AVAILABLE' AND active_booking.booking_id IS NULL
+         WHEN seat.status = 'AVAILABLE' AND allocation.booking_seat_id IS NULL
          THEN seat.seat_id
        END) AS availableSeats
      FROM schedules s
@@ -119,9 +119,6 @@ async function searchTrains({ source, destination, date }) {
      LEFT JOIN booking_seats allocation
        ON allocation.seat_id = seat.seat_id
       AND allocation.allocation_status IN ('HELD', 'CONFIRMED')
-     LEFT JOIN bookings active_booking
-       ON active_booking.booking_id = allocation.booking_id
-      AND active_booking.status IN ('PENDING_PAYMENT', 'CONFIRMED')
      WHERE s.journey_date = DATE_SUB(?, INTERVAL source_stop.day_offset DAY)
        AND s.status = 'SCHEDULED'
        AND source_stop.departure_time IS NOT NULL
