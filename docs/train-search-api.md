@@ -42,9 +42,9 @@ The requested date is the calendar date of departure at the selected source, acc
 `availableSeats` is the number of distinct seats in coaches for the returned schedule and class that meet both conditions:
 
 - The seat's inventory status is `AVAILABLE`.
-- The seat has no `HELD` or `CONFIRMED` allocation attached to a `PENDING_PAYMENT` or `CONFIRMED` booking.
+- The seat has no `HELD` or `CONFIRMED` allocation.
 
-`BLOCKED` seats, active allocations on pending-payment or confirmed bookings, and duplicate rows from joins do not increase the count. `RELEASED` allocations and allocations attached to `PAYMENT_FAILED` or `CANCELLED` bookings do not reduce the reported count. The database's unique active-seat constraint still applies to any allocation whose allocation status remains `HELD` or `CONFIRMED`, so payment-failure and cancellation flows must transition those allocations to `RELEASED` before the seat can be allocated again. Inventory is stored for the whole schedule rather than individual route segments, so this API reports schedule-wide availability, not availability limited to the selected source/destination segment.
+`BLOCKED` seats, active allocations, and duplicate rows from joins do not increase the count. Only the allocation status determines whether an allocation consumes a seat: a `HELD` or `CONFIRMED` allocation remains unavailable even if its booking status is `PAYMENT_FAILED` or `CANCELLED`. This matches the database's unique active-seat constraint, which remains occupied until the allocation is changed to `RELEASED`. Payment-failure and cancellation flows must release allocations when the applicable booking rules require it. This repository currently contains no booking/payment/cancellation write service, so those lifecycle transitions are not implemented here. Inventory is stored for the whole schedule rather than individual route segments, so this API reports schedule-wide availability, not availability limited to the selected source/destination segment.
 
 Results require a configured coach class and fare so every returned option can continue to the existing class/seat-selection flow. The response includes `scheduleId` for that flow.
 

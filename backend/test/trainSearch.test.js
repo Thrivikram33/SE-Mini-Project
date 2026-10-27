@@ -150,9 +150,10 @@ test('uses ordered route stops and filters inactive trains and invalid schedules
   assert.match(sql, /s\.journey_date = DATE_SUB\(\?, INTERVAL source_stop\.day_offset DAY\)/)
   assert.match(sql, /seat\.status = 'AVAILABLE'/)
   assert.match(sql, /allocation\.allocation_status IN \('HELD', 'CONFIRMED'\)/)
-  assert.match(sql, /active_booking\.status IN \('PENDING_PAYMENT', 'CONFIRMED'\)/)
+  assert.match(sql, /allocation\.booking_seat_id IS NULL/)
+  assert.doesNotMatch(sql, /active_booking\.status/)
   assert.match(sql, /COUNT\(DISTINCT CASE/)
-  assert.match(sql, /WHEN seat\.status = 'AVAILABLE' AND active_booking\.booking_id IS NULL/)
+  assert.match(sql, /WHEN seat\.status = 'AVAILABLE' AND allocation\.booking_seat_id IS NULL/)
 })
 
 test('database schema allows at most one active allocation per seat', () => {

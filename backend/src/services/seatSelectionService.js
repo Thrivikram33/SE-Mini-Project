@@ -53,10 +53,8 @@ async function getClassesForSchedule(scheduleId) {
           AND NOT EXISTS (
             SELECT 1
             FROM booking_seats bs
-            JOIN bookings b ON b.booking_id = bs.booking_id
             WHERE bs.seat_id = s.seat_id
               AND bs.allocation_status IN ('HELD', 'CONFIRMED')
-              AND b.status IN ('PENDING_PAYMENT', 'CONFIRMED')
           )
          THEN s.seat_id
        END) AS availableSeats
@@ -91,10 +89,8 @@ async function getSeatsForClass(scheduleId, classType) {
          WHEN EXISTS (
            SELECT 1
            FROM booking_seats bs
-           JOIN bookings b ON b.booking_id = bs.booking_id
            WHERE bs.seat_id = s.seat_id
              AND bs.allocation_status IN ('HELD', 'CONFIRMED')
-             AND b.status IN ('PENDING_PAYMENT', 'CONFIRMED')
          ) THEN FALSE
          ELSE TRUE
        END AS available
