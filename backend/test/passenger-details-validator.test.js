@@ -43,3 +43,32 @@ test('rejects null, arrays, and non-object input', () => {
     assert.equal(validatePassengerDetails(passenger).valid, false)
   }
 })
+
+test('accepts international names with supported punctuation', () => {
+  for (const name of ['José García', '\u674e\u5c0f\u9f8d', "O'Connor", 'Anne-Marie']) {
+    assert.equal(
+      validatePassengerDetails({ name, age: 25, gender: 'UNDISCLOSED' }).valid,
+      true,
+      `Expected name ${JSON.stringify(name)} to be accepted`,
+    )
+  }
+})
+
+test('rejects names containing digits or unsupported symbols', () => {
+  for (const name of ['Asha123', 'Asha@Rao', '<script>', 'Rao_']) {
+    assert.ok(
+      validatePassengerDetails({ name, age: 25, gender: 'FEMALE' }).errors.name,
+      `Expected name ${JSON.stringify(name)} to be rejected`,
+    )
+  }
+})
+
+test('accepts each supported gender value', () => {
+  for (const gender of ['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED']) {
+    assert.equal(
+      validatePassengerDetails({ name: 'Asha Rao', age: 25, gender }).valid,
+      true,
+      `Expected gender ${gender} to be accepted`,
+    )
+  }
+})
