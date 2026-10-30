@@ -22,6 +22,9 @@ export default function SeatSelectionPage() {
   const [classType, setClassType] = useState('')
   const [seats, setSeats] = useState([])
   const [selectedSeats, setSelectedSeats] = useState([])
+  const [passengerCount, setPassengerCount] = useState(1)
+  const [calculatedFare, setCalculatedFare] = useState(null)
+  const [fareLoading, setFareLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -42,6 +45,7 @@ export default function SeatSelectionPage() {
     setSeats([])
     setSelectedSeats([])
     setClassType('')
+    setCalculatedFare(null)
 
     if (!/^[1-9]\d*$/.test(scheduleId)) {
       setError('Enter a valid schedule ID.')
@@ -67,7 +71,6 @@ export default function SeatSelectionPage() {
 
   useEffect(() => {
     if (!classType || !scheduleId) {
-      setSeats([])
       return
     }
 
@@ -104,6 +107,26 @@ export default function SeatSelectionPage() {
     return () => controller.abort()
   }, [scheduleId, classType])
 
+  async function calculateTotalFare() {
+    setError('')
+    setMessage('')
+    setFareLoading(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/fare/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduleId, classType, passengerCount }),
+      })
+      const data = await readJson(response)
+      setCalculatedFare(data.fare)
+    } catch (err) {
+      setCalculatedFare(null)
+      setError(err.message || 'Unable to calculate the fare.')
+    } finally {
+      setFareLoading(false)
+    }
+  }
+
   function toggleSeat(seat) {
     if (!seat.available) return
 
@@ -138,7 +161,11 @@ export default function SeatSelectionPage() {
             Schedule ID
             <input
               value={scheduleId}
-              onChange={(event) => setScheduleId(event.target.value)}
+              onChange={(event) => {
+                setScheduleId(event.target.value)
+                setCalculatedFare(null)
+                setSeats([])
+              }}
               inputMode="numeric"
               required
               pattern="[1-9][0-9]*"
@@ -175,7 +202,12 @@ export default function SeatSelectionPage() {
               <button
                 type="button"
                 key={item.classType}
-                onClick={() => setClassType(item.classType)}
+                onClick={() => {
+                  setClassType(item.classType)
+                  setCalculatedFare(null)
+                  setSeats([])
+                  setSelectedSeats([])
+                }}
                 aria-pressed={classType === item.classType}
                 className={`rounded-2xl border p-5 text-left transition ${
                   classType === item.classType
@@ -203,6 +235,38 @@ export default function SeatSelectionPage() {
 
       {classType && (
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-6 flex flex-wrap items-end gap-4 rounded-xl bg-slate-50 p-4">
+            <label className="text-sm font-semibold text-slate-700">
+              Passenger count
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={passengerCount}
+                onChange={(event) => {
+                  setPassengerCount(Number(event.target.value))
+                  setCalculatedFare(null)
+                }}
+                className="mt-2 block w-32 rounded-lg border border-slate-300 px-3 py-2 font-normal"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={calculateTotalFare}
+              disabled={fareLoading || !Number.isSafeInteger(passengerCount) || passengerCount < 1}
+              className="rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white disabled:opacity-50"
+            >
+              {fareLoading ? 'Calculating…' : 'Calculate total fare'}
+            </button>
+            {calculatedFare && (
+              <p role="status" className="text-lg font-bold text-slate-900">
+                Total fare: {calculatedFare.currency} {calculatedFare.totalFare}
+                <span className="ml-2 text-sm font-normal text-slate-600">
+                  ({calculatedFare.passengerCount} × {calculatedFare.currency} {calculatedFare.unitFare})
+                </span>
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-xl font-bold text-slate-900">
