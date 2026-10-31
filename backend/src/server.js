@@ -8,6 +8,7 @@ const pool = require('./config/db')
 const authRoutes = require('./routes/auth')
 const registrationRoutes = require('./routes/registrationRoutes')
 const seatSelectionRoutes = require('./routes/seatSelectionRoutes')
+const fareRoutes = require('./routes/fareRoutes')
 const trainRoutes = require('./routes/trainRoutes')
 const app = express()
 const PORT = Number(process.env.PORT) || 5000
@@ -58,6 +59,7 @@ app.use('/api/auth/register', registrationRoutes)
 // Login, logout, and other authentication routes.
 app.use('/api/auth', authRoutes)
 app.use('/api', seatSelectionRoutes)
+app.use('/api', fareRoutes)
 app.use('/api/trains', trainRoutes)
 app.use((_req, res) => {
   res.status(404).json({
