@@ -182,7 +182,7 @@ export default function TrainSearchPage() {
                 <span>Fare: {train.fare.currency} {Number(train.fare.amount).toFixed(2)}</span>
                 <span>{train.availableSeats} seats available</span>
                 <Link
-                  to={`/seats?scheduleId=${encodeURIComponent(train.scheduleId)}`}
+                  to={`/seats?scheduleId=${encodeURIComponent(train.scheduleId)}&source=${encodeURIComponent(train.source.code)}&destination=${encodeURIComponent(train.destination.code)}`}
                   className="font-semibold text-sky-700 hover:text-sky-900"
                 >
                   Choose class and seats

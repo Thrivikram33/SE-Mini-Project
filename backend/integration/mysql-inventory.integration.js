@@ -36,16 +36,19 @@ const pool = mysql.createPool({
 
 const servicePath = path.resolve(__dirname, '../src/services/trainSearchService.js')
 const seatServicePath = path.resolve(__dirname, '../src/services/seatSelectionService.js')
+const bookingServicePath = path.resolve(__dirname, '../src/services/bookingService.js')
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
-  if (parent && [servicePath, seatServicePath].includes(parent.filename) && request === '../config/db') return pool
+  if (parent && [servicePath, seatServicePath, bookingServicePath].includes(parent.filename) && request === '../config/db') return pool
   return originalLoad.call(this, request, parent, isMain)
 }
 let searchTrains
 let getSeatsForClass
+let createBookingService
 try {
   ;({ searchTrains } = require(servicePath))
   ;({ getSeatsForClass } = require(seatServicePath))
+  ;({ createBookingService } = require(bookingServicePath))
 } finally {
   Module._load = originalLoad
 }
@@ -62,7 +65,6 @@ const fixture = {
 async function applySchemaToDedicatedTestDatabase() {
   const [[database]] = await pool.query('SELECT DATABASE() AS databaseName')
   assert.equal(database.databaseName, 'railway_reservation_issue4_test')
-
   const migrationPath = path.resolve(__dirname, '../../database/migrations/001_initial_schema.sql')
   const migration = fs.readFileSync(migrationPath, 'utf8')
   assert.match(migration, /^USE\s+railway_reservation\s*;/im)
@@ -79,6 +81,8 @@ async function applySchemaToDedicatedTestDatabase() {
   for (const statement of createStatements) {
     await pool.query(statement)
   }
+  // This migration is safe to repeat and applies only to the allowlisted test DB.
+  await pool.query('ALTER TABLE bookings MODIFY COLUMN pnr CHAR(12) NULL')
 }
 
 async function insertFixture() {
@@ -186,6 +190,7 @@ async function cleanupFixture() {
   const bookingIds = Object.values(fixture.bookingIds)
   if (bookingIds.length) {
     const placeholders = bookingIds.map(() => '?').join(', ')
+    await pool.execute(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM booking_seats WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM passengers WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM bookings WHERE booking_id IN (${placeholders})`, bookingIds)
@@ -331,6 +336,84 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
       assert.equal(await getAvailability(), expectedInitially + failedAndCancelledAllocations.length)
       await connectionB.commit()
       assert.equal(await getAvailability(), expectedInitially + failedAndCancelledAllocations.length - 1)
+
+      // Exercise the real booking service against independent MySQL connections.
+      const [failureSeat] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PAYFAIL', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const service = createBookingService(pool, {
+        async charge({ outcome }) { return { success: outcome !== 'failure' } },
+      }, { today: () => new Date().toISOString().slice(0, 10) })
+      const bookingRequest = (seatId, paymentOutcome) => ({
+        scheduleId: fixture.created.scheduleId,
+        source: fixture.created.sourceCode,
+        destination: fixture.created.destinationCode,
+        classType: 'SL',
+        seatIds: [seatId],
+        passengers: [{ name: 'Booking Integration', age: 30, gender: 'UNDISCLOSED' }],
+        paymentOutcome,
+      })
+      const availabilityBeforeFailure = await getAvailability()
+      await assert.rejects(
+        service.create(fixture.created.userId, bookingRequest(failureSeat.insertId, 'failure')),
+        (error) => error.statusCode === 402 && error.code === 'PAYMENT_FAILED',
+      )
+      assert.equal(await getAvailability(), availabilityBeforeFailure)
+      const [[failedRow]] = await pool.execute(
+        `SELECT booking_id AS bookingId, status, pnr FROM bookings
+         WHERE user_id = ? AND schedule_id = ? AND status = 'PAYMENT_FAILED' AND pnr IS NULL
+         ORDER BY booking_id DESC LIMIT 1`,
+        [fixture.created.userId, fixture.created.scheduleId],
+      )
+      assert.ok(failedRow)
+      fixture.bookingIds.paymentFailed = failedRow.bookingId
+      const [[failedAllocation]] = await pool.execute(
+        'SELECT allocation_status AS status FROM booking_seats WHERE booking_id = ?',
+        [failedRow.bookingId],
+      )
+      assert.equal(failedAllocation.status, 'RELEASED')
+      const [[failedPayment]] = await pool.execute(
+        'SELECT status FROM payments WHERE booking_id = ?', [failedRow.bookingId],
+      )
+      assert.equal(failedPayment.status, 'FAILED')
+
+      const beforeSuccess = await getAvailability()
+      const confirmed = await service.create(fixture.created.userId, bookingRequest(failureSeat.insertId))
+      assert.equal(confirmed.status, 'CONFIRMED')
+      assert.equal(confirmed.pnr.length, 12)
+      assert.equal(await getAvailability(), beforeSuccess - 1)
+      const [[confirmedRow]] = await pool.execute(
+        'SELECT booking_id AS bookingId, status FROM bookings WHERE pnr = ?', [confirmed.pnr],
+      )
+      assert.equal(confirmedRow.status, 'CONFIRMED')
+      fixture.bookingIds.paymentSuccess = confirmedRow.bookingId
+      const [[successfulPayment]] = await pool.execute(
+        'SELECT status FROM payments WHERE booking_id = ?', [confirmedRow.bookingId],
+      )
+      assert.equal(successfulPayment.status, 'SUCCESS')
+
+      const [raceSeat] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PAYRACE', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const competingBookings = await Promise.allSettled([
+        service.create(fixture.created.userId, bookingRequest(raceSeat.insertId)),
+        service.create(fixture.created.userId, bookingRequest(raceSeat.insertId)),
+      ])
+      assert.equal(competingBookings.filter((result) => result.status === 'fulfilled').length, 1)
+      assert.equal(competingBookings.filter((result) => result.status === 'rejected' && result.reason.code === 'SEATS_UNAVAILABLE').length, 1)
+      const winner = competingBookings.find((result) => result.status === 'fulfilled').value
+      const [[raceAllocation]] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM booking_seats bs
+         JOIN bookings b ON b.booking_id = bs.booking_id
+         WHERE bs.seat_id = ? AND bs.allocation_status = 'CONFIRMED' AND b.status = 'CONFIRMED'`,
+        [raceSeat.insertId],
+      )
+      assert.equal(Number(raceAllocation.count), 1)
+      const [[raceWinner]] = await pool.execute('SELECT booking_id AS bookingId FROM bookings WHERE pnr = ?', [winner.pnr])
+      fixture.bookingIds.paymentRaceWinner = raceWinner.bookingId
+
     } finally {
       await connectionA.rollback().catch(() => {})
       await connectionB.rollback().catch(() => {})
