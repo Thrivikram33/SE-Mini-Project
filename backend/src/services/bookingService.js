@@ -1,0 +1,191 @@
+const { randomBytes, randomUUID } = require('node:crypto')
+const { validatePassengerDetails } = require('../validators/passengerDetailsValidator')
+
+const CLASSES = new Set(['1A', '2A', '3A', 'SL', 'CC', '2S'])
+const PNR_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+
+function apiError(statusCode, code, message, details) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  error.code = code
+  if (details) error.details = details
+  return error
+}
+
+function pnr() {
+  return Array.from(randomBytes(12), (byte) => PNR_ALPHABET[byte % PNR_ALPHABET.length]).join('')
+}
+
+function normalize(input) {
+  const details = {}
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw apiError(400, 'VALIDATION_ERROR', 'A JSON booking request is required.', { request: 'A JSON object is required.' })
+  }
+  const scheduleId = input.scheduleId
+  if (!/^[1-9]\d*$/.test(String(scheduleId)) || !Number.isSafeInteger(Number(scheduleId))) details.scheduleId = 'Choose a valid schedule.'
+  const classType = typeof input.classType === 'string' ? input.classType.trim().toUpperCase() : ''
+  if (!CLASSES.has(classType)) details.classType = 'Choose a valid travel class.'
+  const source = typeof input.source === 'string' ? input.source.trim().toUpperCase() : ''
+  const destination = typeof input.destination === 'string' ? input.destination.trim().toUpperCase() : ''
+  if (!/^[A-Z0-9]{2,10}$/.test(source)) details.source = 'Enter a valid origin station code.'
+  if (!/^[A-Z0-9]{2,10}$/.test(destination)) details.destination = 'Enter a valid destination station code.'
+  if (source && source === destination) details.destination = 'Origin and destination must differ.'
+  if (!Array.isArray(input.passengers) || input.passengers.length < 1 || input.passengers.length > 6) details.passengers = 'Enter between 1 and 6 passengers.'
+  if (!Array.isArray(input.seatIds) || input.seatIds.length < 1 || input.seatIds.length > 6) details.seatIds = 'Select one available seat for each passenger.'
+  else if (input.seatIds.some((id) => !/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id)))
+    || new Set(input.seatIds.map(Number)).size !== input.seatIds.length) details.seatIds = 'Select distinct valid seat IDs.'
+
+  const passengers = Array.isArray(input.passengers) ? input.passengers : []
+  passengers.forEach((passenger, index) => {
+    const result = validatePassengerDetails(passenger)
+    if (!result.valid) Object.entries(result.errors).forEach(([field, message]) => {
+      details[`passengers.${index}.${field}`] = message
+    })
+  })
+  if (Array.isArray(input.passengers) && Array.isArray(input.seatIds) && input.passengers.length !== input.seatIds.length) details.seatIds = 'Select one distinct available seat for each passenger.'
+  if (input.paymentOutcome !== undefined && !['success', 'failure'].includes(input.paymentOutcome)) details.paymentOutcome = 'Payment simulator outcome must be success or failure.'
+  if (Object.keys(details).length) throw apiError(400, 'VALIDATION_ERROR', 'Please correct the booking details.', details)
+
+  return {
+    scheduleId: Number(scheduleId), classType, source, destination,
+    passengers: passengers.map((passenger) => ({ name: passenger.name.trim(), age: Number(passenger.age), gender: passenger.gender })),
+    seatIds: input.seatIds.map(Number).sort((a, b) => a - b),
+    paymentOutcome: input.paymentOutcome,
+  }
+}
+
+function dateOnly(value) {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+}
+
+function dateAtOrigin(scheduleDate, dayOffset) {
+  const date = new Date(`${dateOnly(scheduleDate)}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + Number(dayOffset))
+  return date.toISOString().slice(0, 10)
+}
+
+function createBookingService(db, paymentSimulator, options = {}) {
+  const database = db || require('../config/db')
+  const today = options.today || (() => new Date().toISOString().slice(0, 10))
+  const makePnr = options.pnrFactory || pnr
+  return {
+    async create(userId, input) {
+      const booking = normalize(input)
+      const connection = await database.getConnection()
+      let transactionOpen = false
+      try {
+        await connection.beginTransaction()
+        transactionOpen = true
+        const [schedules] = await connection.execute(
+          `SELECT sc.schedule_id AS scheduleId, sc.journey_date AS journeyDate,
+                  sc.status AS scheduleStatus, t.train_number AS trainNumber,
+                  t.train_name AS trainName, f.amount AS fare, f.currency AS currency
+           FROM schedules sc
+           JOIN trains t ON t.train_id = sc.train_id AND t.active = TRUE
+           JOIN fares f ON f.schedule_id = sc.schedule_id AND f.class_type = ?
+           WHERE sc.schedule_id = ? FOR UPDATE`,
+          [booking.classType, booking.scheduleId],
+        )
+        const schedule = schedules[0]
+        if (!schedule || schedule.scheduleStatus !== 'SCHEDULED') throw apiError(404, 'SCHEDULE_NOT_FOUND', 'This schedule is not available for booking.')
+
+        const [routes] = await connection.execute(
+          `SELECT os.station_id AS originStationId, ds.station_id AS destinationStationId,
+                  os.day_offset AS originDayOffset,
+                  ost.code AS originCode, ost.name AS originName, dst.code AS destinationCode, dst.name AS destinationName
+           FROM schedules sc
+           JOIN route_stops os ON os.train_id = sc.train_id
+           JOIN stations ost ON ost.station_id = os.station_id
+           JOIN route_stops ds ON ds.train_id = sc.train_id AND ds.sequence_no > os.sequence_no
+           JOIN stations dst ON dst.station_id = ds.station_id
+           WHERE sc.schedule_id = ? AND ost.code = ? AND dst.code = ? LIMIT 1`,
+          [booking.scheduleId, booking.source, booking.destination],
+        )
+        const route = routes[0]
+        if (!route) throw apiError(400, 'INVALID_ROUTE', 'The selected stations are not on this train in that order.')
+        const journeyDate = dateAtOrigin(schedule.journeyDate, route.originDayOffset)
+        if (journeyDate < today()) throw apiError(404, 'SCHEDULE_NOT_FOUND', 'This schedule is not available for booking.')
+
+        const placeholders = booking.seatIds.map(() => '?').join(', ')
+        const [seats] = await connection.execute(
+          `SELECT s.seat_id AS seatId, s.seat_number AS seatNumber, s.status,
+                  c.class_type AS classType, c.schedule_id AS scheduleId,
+                  (SELECT COUNT(*) FROM booking_seats bs WHERE bs.seat_id = s.seat_id
+                   AND bs.allocation_status IN ('HELD', 'CONFIRMED')) AS activeAllocation
+           FROM seats s JOIN coaches c ON c.coach_id = s.coach_id
+           WHERE s.seat_id IN (${placeholders}) ORDER BY s.seat_id FOR UPDATE`,
+          booking.seatIds,
+        )
+        if (seats.length !== booking.seatIds.length || seats.some((seat) => seat.status !== 'AVAILABLE'
+          || seat.classType !== booking.classType || Number(seat.scheduleId) !== booking.scheduleId
+          || Number(seat.activeAllocation) !== 0)) throw apiError(409, 'SEATS_UNAVAILABLE', 'One or more selected seats are no longer available.')
+
+        const totalCents = Math.round(Number(schedule.fare) * 100) * booking.passengers.length
+        if (!Number.isSafeInteger(totalCents) || totalCents < 0 || totalCents > 9999999999) throw apiError(400, 'INVALID_FARE', 'The configured fare is invalid.')
+        const totalFare = (totalCents / 100).toFixed(2)
+        const [created] = await connection.execute(
+          "INSERT INTO bookings (pnr, user_id, schedule_id, status, total_fare) VALUES (NULL, ?, ?, 'PENDING_PAYMENT', ?)",
+          [userId, booking.scheduleId, totalFare],
+        )
+        const passengerIds = []
+        for (const passenger of booking.passengers) {
+          const [inserted] = await connection.execute('INSERT INTO passengers (booking_id, name, age, gender) VALUES (?, ?, ?, ?)',
+            [created.insertId, passenger.name, passenger.age, passenger.gender])
+          passengerIds.push(inserted.insertId)
+        }
+        for (let index = 0; index < booking.seatIds.length; index += 1) {
+          await connection.execute("INSERT INTO booking_seats (booking_id, seat_id, passenger_id, allocation_status) VALUES (?, ?, ?, 'HELD')",
+            [created.insertId, booking.seatIds[index], passengerIds[index]])
+        }
+        const reference = randomUUID()
+        const [payment] = await connection.execute("INSERT INTO payments (booking_id, amount, status, reference) VALUES (?, ?, 'PENDING', ?)",
+          [created.insertId, totalFare, reference])
+        const result = await paymentSimulator.charge({ amount: totalFare, outcome: booking.paymentOutcome })
+
+        if (!result.success) {
+          await connection.execute("UPDATE payments SET status = 'FAILED' WHERE payment_id = ?", [payment.insertId])
+          await connection.execute("UPDATE booking_seats SET allocation_status = 'RELEASED', released_at = CURRENT_TIMESTAMP WHERE booking_id = ?", [created.insertId])
+          await connection.execute("UPDATE bookings SET status = 'PAYMENT_FAILED' WHERE booking_id = ?", [created.insertId])
+          await connection.commit()
+          transactionOpen = false
+          throw apiError(402, 'PAYMENT_FAILED', 'The simulated payment failed. No seats were reserved.')
+        }
+
+        let confirmedPnr
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          confirmedPnr = makePnr()
+          try {
+            await connection.execute("UPDATE bookings SET pnr = ?, status = 'CONFIRMED' WHERE booking_id = ? AND status = 'PENDING_PAYMENT'", [confirmedPnr, created.insertId])
+            break
+          } catch (error) {
+            if (error.code !== 'ER_DUP_ENTRY' || attempt === 2) throw error
+          }
+        }
+        await connection.execute("UPDATE booking_seats SET allocation_status = 'CONFIRMED' WHERE booking_id = ?", [created.insertId])
+        await connection.execute("UPDATE payments SET status = 'SUCCESS' WHERE payment_id = ?", [payment.insertId])
+        await connection.execute('INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id) VALUES (?, ?, ?, ?)',
+          [userId, 'BOOKING_CONFIRMED', 'booking', String(created.insertId)])
+        await connection.commit()
+        transactionOpen = false
+        return {
+          bookingId: created.insertId, pnr: confirmedPnr, status: 'CONFIRMED',
+          trainNumber: schedule.trainNumber, trainName: schedule.trainName,
+          origin: { code: route.originCode, name: route.originName },
+          destination: { code: route.destinationCode, name: route.destinationName },
+          journeyDate, classType: booking.classType,
+          totalFare, currency: schedule.currency,
+          passengers: booking.passengers.map((passenger, index) => ({
+            ...passenger, seatNumber: seats.find((seat) => Number(seat.seatId) === booking.seatIds[index]).seatNumber,
+          })),
+        }
+      } catch (error) {
+        if (transactionOpen) await connection.rollback()
+        throw error
+      } finally {
+        connection.release()
+      }
+    },
+  }
+}
+
+module.exports = { createBookingService }
