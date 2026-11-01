@@ -1,8 +1,8 @@
 
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
 const CLASS_NAMES = {
   '1A': 'First AC',
@@ -15,6 +15,7 @@ const CLASS_NAMES = {
 
 export default function SeatSelectionPage() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [scheduleId, setScheduleId] = useState(
     searchParams.get('scheduleId') || '',
   )
@@ -23,11 +24,18 @@ export default function SeatSelectionPage() {
   const [seats, setSeats] = useState([])
   const [selectedSeats, setSelectedSeats] = useState([])
   const [passengerCount, setPassengerCount] = useState(1)
+  const [passengers, setPassengers] = useState([{ name: '', age: '', gender: '' }])
+  const [paymentOutcome, setPaymentOutcome] = useState('success')
+  const [booking, setBooking] = useState(null)
+  const [bookingLoading, setBookingLoading] = useState(false)
+  const [bookingErrors, setBookingErrors] = useState({})
   const [calculatedFare, setCalculatedFare] = useState(null)
   const [fareLoading, setFareLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const source = searchParams.get('source') || ''
+  const destination = searchParams.get('destination') || ''
 
   async function readJson(response) {
     const data = await response.json()
@@ -131,11 +139,74 @@ export default function SeatSelectionPage() {
     if (!seat.available) return
 
     setMessage('')
+    setBooking(null)
     setSelectedSeats((current) =>
       current.includes(seat.seatId)
         ? current.filter((id) => id !== seat.seatId)
         : [...current, seat.seatId],
     )
+  }
+
+  function updatePassenger(index, field, value) {
+    setPassengers((current) => current.map((passenger, passengerIndex) =>
+      passengerIndex === index ? { ...passenger, [field]: value } : passenger,
+    ))
+    setBookingErrors((current) => {
+      const next = { ...current }
+      delete next[`passengers.${index}.${field}`]
+      return next
+    })
+  }
+
+  async function submitBooking(event) {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    setBooking(null)
+    setBookingErrors({})
+    if (selectedSeats.length !== passengerCount) {
+      setError('Select exactly one available seat for each passenger.')
+      return
+    }
+    if (!source || !destination) {
+      setError('Return to train search and choose this journey so its route is included.')
+      return
+    }
+    setBookingLoading(true)
+    try {
+      const payload = {
+        scheduleId: Number(scheduleId),
+        source,
+        destination,
+        classType,
+        seatIds: [...selectedSeats].sort((a, b) => Number(a) - Number(b)),
+        passengers: passengers.slice(0, passengerCount),
+        ...(import.meta.env.DEV ? { paymentOutcome } : {}),
+      }
+      const response = await fetch(`${API_BASE}/api/bookings`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        if (result.details) setBookingErrors(result.details)
+        if (response.status === 401) {
+          const returnTo = `${window.location.pathname}${window.location.search}`
+          navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`)
+          return
+        }
+        throw new Error(result.message || 'Booking could not be completed.')
+      }
+      setBooking(result.booking)
+      setSelectedSeats([])
+      setMessage('Simulated payment succeeded. Your booking is confirmed.')
+    } catch (requestError) {
+      setError(requestError.message || 'Booking could not be completed.')
+    } finally {
+      setBookingLoading(false)
+    }
   }
 
   const coaches = [...new Set(seats.map((seat) => seat.coachId))]
@@ -246,6 +317,8 @@ export default function SeatSelectionPage() {
                 onChange={(event) => {
                   setPassengerCount(Number(event.target.value))
                   setCalculatedFare(null)
+                  setBooking(null)
+                  setPassengers((current) => Array.from({ length: Number(event.target.value) || 1 }, (_, index) => current[index] || { name: '', age: '', gender: '' }))
                 }}
                 className="mt-2 block w-32 rounded-lg border border-slate-300 px-3 py-2 font-normal"
               />
@@ -337,6 +410,66 @@ export default function SeatSelectionPage() {
               Clear selection
             </button>
           </div>
+
+          {selectedSeats.length > 0 && (
+            <form onSubmit={submitBooking} className="mt-8 border-t border-slate-200 pt-6">
+              <h3 className="text-xl font-bold text-slate-900">Passenger details and payment</h3>
+              <p className="mt-2 text-sm text-slate-600">Enter details for each selected seat. The server validates them before starting the booking.</p>
+              <div className="mt-4 space-y-4">
+                {Array.from({ length: passengerCount }, (_, index) => (
+                  <fieldset key={index} className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-3">
+                    <legend className="px-1 text-sm font-semibold text-slate-700">Passenger {index + 1}</legend>
+                    <label className="text-sm font-medium text-slate-700">
+                      Full name
+                      <input required maxLength="120" value={passengers[index]?.name || ''} onChange={(event) => updatePassenger(index, 'name', event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" />
+                      {bookingErrors[`passengers.${index}.name`] && <span className="mt-1 block text-xs text-red-700">{bookingErrors[`passengers.${index}.name`]}</span>}
+                    </label>
+                    <label className="text-sm font-medium text-slate-700">
+                      Age
+                      <input required type="number" min="1" max="120" step="1" value={passengers[index]?.age || ''} onChange={(event) => updatePassenger(index, 'age', event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" />
+                      {bookingErrors[`passengers.${index}.age`] && <span className="mt-1 block text-xs text-red-700">{bookingErrors[`passengers.${index}.age`]}</span>}
+                    </label>
+                    <label className="text-sm font-medium text-slate-700">
+                      Gender
+                      <select required value={passengers[index]?.gender || ''} onChange={(event) => updatePassenger(index, 'gender', event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+                        <option value="" disabled>Select one</option>
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                        <option value="OTHER">Other</option>
+                        <option value="UNDISCLOSED">Prefer not to say</option>
+                      </select>
+                      {bookingErrors[`passengers.${index}.gender`] && <span className="mt-1 block text-xs text-red-700">{bookingErrors[`passengers.${index}.gender`]}</span>}
+                    </label>
+                  </fieldset>
+                ))}
+              </div>
+
+              {import.meta.env.DEV && (
+                <label className="mt-5 block max-w-sm text-sm font-medium text-slate-700">
+                  Simulated payment result (development only)
+                  <select value={paymentOutcome} onChange={(event) => setPaymentOutcome(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+                    <option value="success">Success</option>
+                    <option value="failure">Failure</option>
+                  </select>
+                </label>
+              )}
+
+              <button type="submit" disabled={bookingLoading || selectedSeats.length !== passengerCount} className="mt-5 rounded-xl bg-sky-500 px-6 py-3 font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">
+                {bookingLoading ? 'Processing simulated payment…' : `Pay ${calculatedFare?.currency || 'INR'} ${calculatedFare?.totalFare || ''} and confirm`}
+              </button>
+            </form>
+          )}
+        </section>
+      )}
+
+      {booking && booking.status === 'CONFIRMED' && (
+        <section aria-live="polite" className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+          <p className="text-sm font-semibold uppercase tracking-widest text-emerald-800">Booking confirmed</p>
+          <h2 className="mt-2 text-2xl font-bold text-emerald-950">PNR {booking.pnr}</h2>
+          <p className="mt-2 text-sm text-emerald-900">{booking.trainName} · {booking.journeyDate} · {booking.classType} · {booking.currency} {booking.totalFare}</p>
+          <ul className="mt-4 space-y-1 text-sm text-emerald-950">
+            {booking.passengers.map((passenger, index) => <li key={`${passenger.name}-${index}`}>{passenger.name} · seat {passenger.seatNumber}</li>)}
+          </ul>
         </section>
       )}
     </main>
