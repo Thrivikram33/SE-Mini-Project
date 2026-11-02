@@ -1,45 +1,27 @@
 const express = require('express')
-const {
-  createBooking,
-  confirmBooking,
-  releaseHeldAllocations,
-  getBookingAllocations,
-} = require('../services/bookingService')
+const { requireRole } = require('../middleware/authMiddleware')
+const { createBookingService } = require('../services/bookingService')
+const { createPaymentSimulator } = require('../services/paymentSimulator')
 
 const router = express.Router()
+const bookingService = createBookingService(undefined, createPaymentSimulator())
 
-router.post('/', async (req, res, next) => {
-  try {
-    const data = await createBooking(req.body || {}, req.user?.id)
-    return res.status(201).json({ booking: data })
-  } catch (error) {
-    return next(error)
+router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
+  const userId = Number(req.session.user.userId)
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(401).json({ error: 'AUTHENTICATION_REQUIRED', message: 'Authentication required.' })
   }
-})
-
-router.post('/:bookingId/confirm', async (req, res, next) => {
   try {
-    const booking = await confirmBooking(req.params.bookingId)
-    return res.status(200).json({ booking })
+    const booking = await bookingService.create(userId, req.body)
+    return res.status(201).json({ booking })
   } catch (error) {
-    return next(error)
-  }
-})
-
-router.post('/:bookingId/release', async (req, res, next) => {
-  try {
-    const booking = await releaseHeldAllocations(req.params.bookingId)
-    return res.status(200).json({ booking })
-  } catch (error) {
-    return next(error)
-  }
-})
-
-router.get('/:bookingId/allocations', async (req, res, next) => {
-  try {
-    const allocations = await getBookingAllocations(req.params.bookingId)
-    return res.status(200).json({ allocations })
-  } catch (error) {
+    if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 500) {
+      return res.status(error.statusCode).json({
+        error: error.code || 'REQUEST_FAILED',
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      })
+    }
     return next(error)
   }
 })

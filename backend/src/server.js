@@ -61,7 +61,7 @@ app.use('/api/auth/register', registrationRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api', seatSelectionRoutes)
 app.use('/api', fareRoutes)
-app.use('/api/bookings', bookingRoutes)
+app.use('/api', bookingRoutes)
 app.use('/api/trains', trainRoutes)
 app.use((_req, res) => {
   res.status(404).json({
