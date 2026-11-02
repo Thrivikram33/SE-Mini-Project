@@ -152,14 +152,33 @@ function createBookingService(db, paymentSimulator, options = {}) {
         }
 
         let confirmedPnr
+        let pnrAssigned = false
+
         for (let attempt = 0; attempt < 3; attempt += 1) {
           confirmedPnr = makePnr()
+
           try {
-            await connection.execute("UPDATE bookings SET pnr = ?, status = 'CONFIRMED' WHERE booking_id = ? AND status = 'PENDING_PAYMENT'", [confirmedPnr, created.insertId])
+            const [updateResult] = await connection.execute(
+              "UPDATE bookings SET pnr = ?, status = 'CONFIRMED' WHERE booking_id = ? AND status = 'PENDING_PAYMENT'",
+              [confirmedPnr, created.insertId],
+            )
+
+            if (updateResult.affectedRows !== 1) {
+              throw new Error('Booking could not be confirmed after payment.')
+            }
+
+            pnrAssigned = true
             break
           } catch (error) {
-            if (error.code !== 'ER_DUP_ENTRY' || attempt === 2) throw error
+            const isPnrCollision = error.code === 'ER_DUP_ENTRY'
+              && String(error.message).includes('uq_bookings_pnr')
+
+            if (!isPnrCollision || attempt === 2) throw error
           }
+        }
+
+        if (!pnrAssigned) {
+          throw new Error('Unable to assign a unique booking PNR.')
         }
         await connection.execute("UPDATE booking_seats SET allocation_status = 'CONFIRMED' WHERE booking_id = ?", [created.insertId])
         await connection.execute("UPDATE payments SET status = 'SUCCESS' WHERE payment_id = ?", [payment.insertId])
@@ -188,4 +207,7 @@ function createBookingService(db, paymentSimulator, options = {}) {
   }
 }
 
-module.exports = { createBookingService }
+module.exports = {
+  createBookingService,
+  generatePnr: pnr,
+}

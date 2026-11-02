@@ -11,8 +11,15 @@ const validRequest = {
   passengers: [{ name: 'Pat Passenger', age: 34, gender: 'OTHER' }],
 }
 
-function fixture({ paymentSuccess = true, failOn, seatAvailable = true } = {}) {
-  const statements = []
+function fixture({
+  paymentSuccess = true,
+  failOn,
+  seatAvailable = true,
+  pnrFactory = () => 'PNR2345678AB',
+  pnrCollisionCount = 0,
+  pnrCollisionMessage = "Duplicate entry for key 'uq_bookings_pnr'",
+} = {}) {
+    const statements = []
   let id = 20
   let transactionOpen = false
   const connection = {
@@ -22,6 +29,14 @@ function fixture({ paymentSuccess = true, failOn, seatAvailable = true } = {}) {
     release() { statements.push('RELEASE') },
     async execute(sql, params) {
       statements.push(sql)
+            if (sql.includes('UPDATE bookings SET pnr')) {
+        if (pnrCollisionCount > 0) {
+          pnrCollisionCount -= 1
+         const error = new Error(pnrCollisionMessage)
+          error.code = 'ER_DUP_ENTRY'
+          throw error
+        }
+      }
       if (failOn && sql.includes(failOn)) throw new Error(`failure at ${failOn}`)
       if (sql.includes('JOIN route_stops os')) return [[{
         originStationId: 1, destinationStationId: 2, originDayOffset: 0,
@@ -45,7 +60,7 @@ function fixture({ paymentSuccess = true, failOn, seatAvailable = true } = {}) {
   const simulator = { async charge() { return { success: paymentSuccess } } }
   const service = createBookingService(
     { async getConnection() { return connection } }, simulator,
-    { today: () => '2030-01-01', pnrFactory: () => 'PNR2345678AB' },
+    { today: () => '2030-01-01', pnrFactory },
   )
   return { service, statements }
 }
@@ -63,7 +78,49 @@ test('successful simulated payment confirms booking, allocations and payment in 
   assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes("UPDATE payments SET status = 'SUCCESS'")))
   assert.equal(statements.some((sql) => sql.includes('UPDATE seats')), false)
 })
+test('retries a duplicate PNR and confirms booking with a new PNR', async () => {
+  const pnrs = ['PNR2345678AB', 'PNR3456789CD']
+  let calls = 0
 
+  const { service, statements } = fixture({
+    pnrFactory: () => pnrs[calls++],
+    pnrCollisionCount: 1,
+  })
+
+  const booking = await service.create(12, validRequest)
+
+  assert.equal(calls, 2)
+  assert.equal(booking.pnr, 'PNR3456789CD')
+  assert.equal(booking.status, 'CONFIRMED')
+  assert.equal(
+    statements.filter((sql) => sql.includes('UPDATE bookings SET pnr')).length,
+    2,
+  )
+  assert.ok(statements.includes('COMMIT'))
+  assert.equal(statements.includes('ROLLBACK'), false)
+})
+
+test('does not retry unrelated duplicate-key errors', async () => {
+  let calls = 0
+
+  const { service, statements } = fixture({
+    pnrFactory: () => {
+      calls += 1
+      return 'PNR2345678AB'
+    },
+    pnrCollisionCount: 1,
+    pnrCollisionMessage: "Duplicate entry for key 'uq_other_unique'",
+  })
+
+  await assert.rejects(
+    service.create(12, validRequest),
+    (error) => error.code === 'ER_DUP_ENTRY',
+  )
+
+  assert.equal(calls, 1)
+  assert.ok(statements.includes('ROLLBACK'))
+  assert.equal(statements.includes('COMMIT'), false)
+})
 test('failed payment retains failed status without PNR and releases held allocations', async () => {
   const { service, statements } = fixture({ paymentSuccess: false })
   await assert.rejects(service.create(12, validRequest), (error) => error.statusCode === 402 && error.code === 'PAYMENT_FAILED')
