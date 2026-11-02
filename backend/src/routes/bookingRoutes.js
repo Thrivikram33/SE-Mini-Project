@@ -1,24 +1,27 @@
 const express = require('express')
-const { requireAuth } = require('../middleware/authMiddleware')
-const { createBooking } = require('../services/bookingService')
+const { requireRole } = require('../middleware/authMiddleware')
+const { createBookingService } = require('../services/bookingService')
+const { createPaymentSimulator } = require('../services/paymentSimulator')
 
 const router = express.Router()
+const bookingService = createBookingService(undefined, createPaymentSimulator())
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
+  const userId = Number(req.session.user.userId)
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(401).json({ error: 'AUTHENTICATION_REQUIRED', message: 'Authentication required.' })
+  }
   try {
-    const { scheduleId, totalFare } = req.body || {}
-
-    const booking = await createBooking({
-      userId: req.session.user.userId ?? req.session.user.user_id,
-      scheduleId,
-      totalFare,
-    })
-
-    return res.status(201).json({
-      message: 'Booking created successfully. Payment is pending.',
-      booking,
-    })
+    const booking = await bookingService.create(userId, req.body)
+    return res.status(201).json({ booking })
   } catch (error) {
+    if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 500) {
+      return res.status(error.statusCode).json({
+        error: error.code || 'REQUEST_FAILED',
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      })
+    }
     return next(error)
   }
 })

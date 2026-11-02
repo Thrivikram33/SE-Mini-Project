@@ -1,5 +1,7 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import SeatSelectionPage from './SeatSelectionPage'
+import TrainSearchPage from './TrainSearchPage'
+import LoginPage from './LoginPage'
 function HomePage() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -195,12 +197,7 @@ function AppLayout() {
         <Route path="/" element={<HomePage />} />
         <Route
           path="/trains"
-          element={
-            <PlaceholderPage
-              title="Find trains"
-              description="Train search, schedules, availability, classes, and fares will be implemented against the approved requirements."
-            />
-          }
+          element={<TrainSearchPage />}
         />
         <Route
           path="/bookings"
@@ -211,15 +208,7 @@ function AppLayout() {
             />
           }
         />
-        <Route
-          path="/login"
-          element={
-            <PlaceholderPage
-              title="Passenger sign in"
-              description="Registration, authentication, and role-based access will be implemented with the backend."
-            />
-          }
-        />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/seats" element={<SeatSelectionPage />} />
         <Route
           path="*"
@@ -235,7 +224,7 @@ function AppLayout() {
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap justify-between gap-2 px-4 py-6 text-sm text-slate-500 sm:px-6 lg:px-8">
           <p>Railway Reservation System</p>
-          <p>Project prototype — booking functionality is not active yet.</p>
+          <p>Search, select seats, and confirm bookings with simulated payment.</p>
         </div>
       </footer>
     </div>
