@@ -2,7 +2,7 @@
 
 Last verified locally: 2026-11-06
 Branch: `feature/seat-allocation-inventory`
-Latest implementation and CI-verified commit: `036c3c6` (`docs(inventory): record verified Issue 10 status`)
+Latest CI-verified commit: `6433806` (`docs(inventory): record passing MySQL CI evidence`)
 Pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), open against `main`
 
 ## Issue #10 — RRS-F-010
@@ -26,9 +26,9 @@ Continuation changes preserve submitted seat order for passenger mapping, add an
 - `cd frontend; npm.cmd run build`: **PASS** after `npm.cmd ci`.
 - `cd frontend; npm.cmd run lint`: **PASS**.
 - `cd backend; npm.cmd run test:mysql`: **BLOCKED before connecting locally** because `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are absent. Docker Desktop's engine is not running. No local test database was changed.
-- GitHub Actions run [#42163027664](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42163027664) on `036c3c6`: **PASS** — repository checks, backend tests, isolated MySQL inventory/concurrency tests, and frontend production build all succeeded.
+- GitHub Actions run [#42163380848](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42163380848) on `6433806`: **PASS** — repository checks, backend tests, isolated MySQL inventory/concurrency tests, and frontend production build all succeeded.
 
-Continuation commits: `8963a048c9f3fda5f68ece20febe61fd6187ce34`, `0f2433ce117a3f9e1819d56420e5b4a34e69a6b9`, and `282421dff7bae0ec63c650b56ab09a74a532b221`. The documentation commit follows these implementation commits.
+Continuation changes are split into implementation, MySQL test/schema, dependency security, and documentation commits. The code and current documentation commits are listed in `docs/PROGRESS_TRACKER.md`.
 
 ## Exact next steps
 
