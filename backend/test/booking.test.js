@@ -15,11 +15,13 @@ function fixture({
   paymentSuccess = true,
   failOn,
   seatAvailable = true,
+  seatRows,
   pnrFactory = () => 'PNR2345678AB',
   pnrCollisionCount = 0,
   pnrCollisionMessage = "Duplicate entry for key 'uq_bookings_pnr'",
 } = {}) {
-    const statements = []
+  const statements = []
+  const allocations = []
   let id = 20
   let transactionOpen = false
   const connection = {
@@ -29,10 +31,10 @@ function fixture({
     release() { statements.push('RELEASE') },
     async execute(sql, params) {
       statements.push(sql)
-            if (sql.includes('UPDATE bookings SET pnr')) {
+      if (sql.includes('UPDATE bookings SET pnr')) {
         if (pnrCollisionCount > 0) {
           pnrCollisionCount -= 1
-         const error = new Error(pnrCollisionMessage)
+          const error = new Error(pnrCollisionMessage)
           error.code = 'ER_DUP_ENTRY'
           throw error
         }
@@ -46,11 +48,12 @@ function fixture({
         scheduleId: 4, journeyDate: '2030-05-12', scheduleStatus: 'SCHEDULED',
         trainNumber: 'D-100', trainName: 'Demo Coastal Express', fare: '450.00', currency: 'INR',
       }]]
-      if (sql.includes('FROM seats s')) return seatAvailable ? [[{
+      if (sql.includes('FROM seats s')) return seatRows ? [seatRows] : seatAvailable ? [[{
         seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 0,
       }]] : [[{
         seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 1,
       }]]
+      if (sql.includes('INSERT INTO booking_seats')) allocations.push(params)
       if (sql.includes('INSERT INTO bookings')) return [{ insertId: 31 }]
       if (sql.includes('INSERT INTO passengers')) return [{ insertId: id++ }]
       if (sql.includes('INSERT INTO payments')) return [{ insertId: id++ }]
@@ -62,7 +65,7 @@ function fixture({
     { async getConnection() { return connection } }, simulator,
     { today: () => '2030-01-01', pnrFactory },
   )
-  return { service, statements }
+  return { service, statements, allocations }
 }
 
 test('successful simulated payment confirms booking, allocations and payment in one transaction', async () => {
@@ -77,6 +80,26 @@ test('successful simulated payment confirms booking, allocations and payment in 
   assert.ok(statements.some((sql) => sql.includes("UPDATE payments SET status = 'SUCCESS'")))
   assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes("UPDATE payments SET status = 'SUCCESS'")))
   assert.equal(statements.some((sql) => sql.includes('UPDATE seats')), false)
+})
+
+test('keeps selected seat order paired with the matching passenger', async () => {
+  const { service, allocations } = fixture({
+    seatRows: [
+      { seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 0 },
+      { seatId: 9, seatNumber: '1B', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 0 },
+    ],
+  })
+  const booking = await service.create(12, {
+    ...validRequest,
+    seatIds: [9, 8],
+    passengers: [
+      { name: 'Passenger One', age: 34, gender: 'OTHER' },
+      { name: 'Passenger Two', age: 31, gender: 'OTHER' },
+    ],
+  })
+
+  assert.deepEqual(allocations.map(([, seatId, passengerId]) => [seatId, passengerId]), [[9, 20], [8, 21]])
+  assert.deepEqual(booking.passengers.map(({ seatNumber }) => seatNumber), ['1B', '1A'])
 })
 test('retries a duplicate PNR and confirms booking with a new PNR', async () => {
   const pnrs = ['PNR2345678AB', 'PNR3456789CD']

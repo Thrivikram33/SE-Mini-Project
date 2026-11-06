@@ -49,7 +49,10 @@ function normalize(input) {
   return {
     scheduleId: Number(scheduleId), classType, source, destination,
     passengers: passengers.map((passenger) => ({ name: passenger.name.trim(), age: Number(passenger.age), gender: passenger.gender })),
-    seatIds: input.seatIds.map(Number).sort((a, b) => a - b),
+    // Keep request order so each selected seat remains paired with the passenger
+    // at the same index. The SELECT below locks rows in seat_id order to avoid
+    // deadlocks without changing the passenger-to-seat mapping.
+    seatIds: input.seatIds.map(Number),
     paymentOutcome: input.paymentOutcome,
   }
 }
