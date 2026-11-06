@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import SeatSelectionPage from './SeatSelectionPage'
 import TrainSearchPage from './TrainSearchPage'
 import LoginPage from './LoginPage'
+import BookingTicketPage from './BookingTicketPage'
 function HomePage() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -210,6 +211,7 @@ function AppLayout() {
         />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/seats" element={<SeatSelectionPage />} />
+        <Route path="/ticket" element={<BookingTicketPage />} />
         <Route
           path="*"
           element={

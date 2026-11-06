@@ -201,7 +201,7 @@ export default function SeatSelectionPage() {
       }
       setBooking(result.booking)
       setSelectedSeats([])
-      setMessage('Simulated payment succeeded. Your booking is confirmed.')
+      navigate('/ticket', { state: { booking: result.booking } })
     } catch (requestError) {
       setError(requestError.message || 'Booking could not be completed.')
     } finally {
