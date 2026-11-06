@@ -2,7 +2,7 @@
 
 Last verified locally: 2026-11-06
 Branch: `feature/seat-allocation-inventory`
-Latest implementation commit: `282421d` (`fix(security): update vulnerable body parser`)
+Latest implementation and CI-verified commit: `036c3c6` (`docs(inventory): record verified Issue 10 status`)
 Pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), open against `main`
 
 ## Issue #10 — RRS-F-010
@@ -25,8 +25,8 @@ Continuation changes preserve submitted seat order for passenger mapping, add an
 - `cd backend; npm.cmd audit --omit=dev`: **PASS, zero vulnerabilities** after the lockfile remediation.
 - `cd frontend; npm.cmd run build`: **PASS** after `npm.cmd ci`.
 - `cd frontend; npm.cmd run lint`: **PASS**.
-- `cd backend; npm.cmd run test:mysql`: **BLOCKED before connecting** because `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are absent. Docker Desktop's engine is not running. No local test database was changed.
-- GitHub Actions on the original PR head `bc9dec5` reported backend tests (including the MySQL integration job) and frontend build successful on 2026-11-02. The continuation commits require a fresh run; its status is not yet known.
+- `cd backend; npm.cmd run test:mysql`: **BLOCKED before connecting locally** because `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are absent. Docker Desktop's engine is not running. No local test database was changed.
+- GitHub Actions run [#42163027664](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42163027664) on `036c3c6`: **PASS** — repository checks, backend tests, isolated MySQL inventory/concurrency tests, and frontend production build all succeeded.
 
 Continuation commits: `8963a048c9f3fda5f68ece20febe61fd6187ce34`, `0f2433ce117a3f9e1819d56420e5b4a34e69a6b9`, and `282421dff7bae0ec63c650b56ab09a74a532b221`. The documentation commit follows these implementation commits.
 
@@ -35,4 +35,4 @@ Continuation commits: `8963a048c9f3fda5f68ece20febe61fd6187ce34`, `0f2433ce117a3
 1. Provide an isolated local MySQL 8 test service and dedicated credentials through the required test-only environment variables, then run `npm.cmd run test:mysql` from `backend/`.
 2. Review migration `003` against any persistent development database before applying it there; preflight for existing mismatched booking/passenger associations.
 3. Implement and verify cancellation only after the project provides the cancellation eligibility and refund policy for this branch.
-4. Review the new CI run on PR #44. Do not merge the PR or close Issue #10 as part of this handoff.
+4. Review PR #44. Do not merge the PR or close Issue #10 as part of this handoff.

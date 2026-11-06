@@ -10,16 +10,16 @@ Last updated: 2026-11-06. Unit/mock, local MySQL, GitHub Actions, and browser ev
 | Backend dependency audit | `cd backend; npm.cmd audit --omit=dev` | **PASS: zero vulnerabilities** after updating the locked transitive `body-parser` from 2.3.0 to 2.4.0. |
 | Frontend production build | `cd frontend; npm.cmd run build` | **PASS** after `npm.cmd ci`. |
 | Real MySQL integration, local | `cd backend; npm.cmd run test:mysql` | **BLOCKED before DB connection:** dedicated `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are not configured. Docker client exists, but the Docker engine is unavailable. No local database writes occurred. |
-| Real MySQL integration, previous PR head | GitHub Actions run for `bc9dec5`, 2026-11-02: [run #41510157924](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/41510157924) | Backend job (unit suite and MySQL integration step) and frontend build reported successful for the previous PR head. The new migration and added scenarios are not covered by this older run. |
-| Same-seat MySQL concurrency | `backend/integration/mysql-inventory.integration.js` | **Added, pending fresh CI/local execution:** independent API booking-service attempts for one seat must produce one success and one safe conflict; direct independent connection inserts also verify the unique active-seat key. |
-| Different-seat MySQL concurrency | `backend/integration/mysql-inventory.integration.js` | **Added, pending fresh CI/local execution:** concurrent booking-service requests for separate seats must both confirm and reduce availability by two. |
-| Successful simulated payment | Unit and MySQL integration tests | Unit case **PASS (mocked)**. Real MySQL case exists, but new-head execution is pending. |
-| Failed simulated payment / release | Unit and MySQL integration tests | Unit case **PASS (mocked)**. Real MySQL case checks failed status, null PNR, failed payment, released allocation, and unchanged availability; new-head execution is pending. |
-| Transaction rollback | Unit and MySQL integration tests | Unit write-failure cases **PASS (mocked)**. Real MySQL test forces payment-adapter failure after transaction writes and compares booking/payment counts and inventory; new-head execution is pending. |
-| Search and seat selection inventory | Unit and MySQL integration tests | Unit cases **PASS (mocked)**. Real DB suite compares search and seat-selection counts and verifies release/reallocation; new-head execution is pending. |
-| Booking/passenger FK | Migration 003 and MySQL integration test | **Added, pending fresh CI/local execution:** a booking/passenger mismatch must fail its composite FK. |
+| Real MySQL integration | GitHub Actions run [#42163027664](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42163027664), commit `036c3c6` | **PASS:** the `Run isolated MySQL inventory and concurrency tests` step completed successfully against the CI MySQL 8 service. Local test run remains blocked for lack of dedicated credentials. |
+| Same-seat MySQL concurrency | `backend/integration/mysql-inventory.integration.js`, CI run #42163027664 | **PASS in CI:** independent API booking-service attempts for one seat yield one success and one safe conflict; direct independent connection inserts verify the unique active-seat key. |
+| Different-seat MySQL concurrency | `backend/integration/mysql-inventory.integration.js`, CI run #42163027664 | **PASS in CI:** concurrent booking-service requests for separate seats both confirm and reduce availability by two. |
+| Successful simulated payment | Unit and MySQL integration tests | Unit case **PASS (mocked)**; CI MySQL case **PASS** with confirmed booking, PNR, payment, and reduced availability. |
+| Failed simulated payment / release | Unit and MySQL integration tests | Unit case **PASS (mocked)**; CI MySQL case **PASS** with failed status, null PNR, failed payment, released allocation, and unchanged availability. |
+| Transaction rollback | Unit and MySQL integration tests | Unit write-failure cases **PASS (mocked)**; CI MySQL case **PASS** after forced payment-adapter failure, with unchanged booking/payment counts and inventory. |
+| Search and seat selection inventory | Unit and MySQL integration tests | Unit cases **PASS (mocked)**; CI MySQL suite **PASS**, comparing search and seat-selection counts and verifying release/reallocation. |
+| Booking/passenger FK | Migration 003 and MySQL integration test | **PASS in CI:** an allocation that pairs a booking with another booking's passenger is rejected. |
 | Cancellation | Source inspection | **NOT IMPLEMENTED on this branch:** no cancellation route/service exists. No cancellation release result is claimed. |
-| CI for continuation | PR #44 | Previous head passed; new workflow run is pending push. |
+| CI for continuation | PR #44, commit `036c3c6` | **PASS:** repository checks, backend tests, MySQL inventory/concurrency tests, and frontend build succeeded. |
 | Git release state | Repository inspection | Existing branch `feature/seat-allocation-inventory`; existing PR #44 remains open; not merged and Issue #10 not closed. |
 
 ## Test database guard
@@ -28,7 +28,7 @@ The integration suite only accepts localhost/loopback and `RRS_MYSQL_TEST_DATABA
 
 ## Remaining verification
 
-- Run `npm.cmd run test:mysql` against an authorized isolated local MySQL 8 test database.
+- Run `npm.cmd run test:mysql` against an authorized isolated local MySQL 8 test database if local reproduction is needed; the same suite passed against CI MySQL 8.
 - Review and apply migration `003` only after checking any existing database for booking/passenger association mismatches.
-- Run and inspect the new GitHub Actions checks after pushing the continuation commits.
+- Review the passing GitHub Actions checks on the pushed continuation commits.
 - Implement cancellation after its eligibility/refund policy is confirmed; the current branch does not contain this behavior.
