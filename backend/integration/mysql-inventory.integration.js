@@ -15,8 +15,8 @@ const missing = REQUIRED_ENV.filter((name) => !process.env[name])
 if (missing.length) {
   throw new Error(`MySQL integration tests require explicit test-only configuration: ${missing.join(', ')}`)
 }
-if (process.env.RRS_MYSQL_TEST_DATABASE !== 'railway_reservation_issue4_test') {
-  throw new Error('MySQL integration tests require RRS_MYSQL_TEST_DATABASE=railway_reservation_issue4_test; refusing any other database.')
+if (process.env.RRS_MYSQL_TEST_DATABASE !== 'railway_reservation_issue10_test') {
+  throw new Error('MySQL integration tests require RRS_MYSQL_TEST_DATABASE=railway_reservation_issue10_test; refusing any other database.')
 }
 if (!['127.0.0.1', 'localhost', '::1'].includes(process.env.RRS_MYSQL_TEST_HOST.toLowerCase())) {
   throw new Error('MySQL integration tests only allow a local test server; refusing a remote host.')
@@ -61,10 +61,17 @@ const fixture = {
   bookingIds: {},
   passengerIds: {},
 }
+const expectedTables = [
+  'audit_logs', 'booking_seats', 'bookings', 'cancellations', 'coaches', 'fares', 'payments',
+  'passengers', 'route_stops', 'schedules', 'seats', 'stations', 'trains', 'users',
+]
 
 async function applySchemaToDedicatedTestDatabase() {
-  const [[database]] = await pool.query('SELECT DATABASE() AS databaseName')
-  assert.equal(database.databaseName, 'railway_reservation_issue4_test')
+  const [[server]] = await pool.query('SELECT DATABASE() AS databaseName, @@hostname AS hostname, @@port AS port')
+  assert.equal(server.databaseName, 'railway_reservation_issue10_test')
+  assert.ok(server.hostname, 'MySQL server identity must be available')
+  assert.equal(Number(server.port), Number(process.env.RRS_MYSQL_TEST_PORT || 3306))
+
   const migrationPath = path.resolve(__dirname, '../../database/migrations/001_initial_schema.sql')
   const migration = fs.readFileSync(migrationPath, 'utf8')
   assert.match(migration, /^USE\s+railway_reservation\s*;/im)
@@ -78,11 +85,69 @@ async function applySchemaToDedicatedTestDatabase() {
     .map((sql) => sql.trim())
     .filter((sql) => /^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b/i.test(sql))
   assert.equal(createStatements.length, 14, 'unexpected initial schema migration shape')
-  for (const statement of createStatements) {
-    await pool.query(statement)
+  const [existingTables] = await pool.query(
+    `SELECT TABLE_NAME AS tableName, ENGINE AS engine
+     FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY TABLE_NAME`,
+  )
+  const existingNames = existingTables.map((table) => table.tableName).sort()
+  if (existingNames.length && JSON.stringify(existingNames) !== JSON.stringify(expectedTables)) {
+    throw new Error('The isolated Issue #10 database contains an unexpected or partial table set; refusing schema changes.')
   }
-  // This migration is safe to repeat and applies only to the allowlisted test DB.
-  await pool.query('ALTER TABLE bookings MODIFY COLUMN pnr CHAR(12) NULL')
+  if (!existingNames.length) {
+    for (const statement of createStatements) await pool.query(statement)
+  } else if (existingTables.some((table) => table.engine !== 'InnoDB')) {
+    throw new Error('The isolated Issue #10 database contains a non-InnoDB table; refusing integration tests.')
+  }
+
+  const pendingCounts = await Promise.all(expectedTables.map(async (table) => {
+    const [[row]] = await pool.query(`SELECT COUNT(*) AS count FROM \`${table}\``)
+    return { table, count: Number(row.count) }
+  }))
+  const populatedTables = pendingCounts.filter(({ count }) => count > 0)
+  if (populatedTables.length) {
+    throw new Error(`The isolated Issue #10 database is not empty (${populatedTables.map(({ table }) => table).join(', ')}); inspect it before running tests.`)
+  }
+  const pnrMigrationPath = path.resolve(__dirname, '../../database/migrations/002_allow_pnr_for_failed_bookings.sql')
+  const pnrMigration = fs.readFileSync(pnrMigrationPath, 'utf8')
+    .replace(/^\s*--.*$/gm, '')
+    .split(';')
+    .map((sql) => sql.trim())
+    .filter(Boolean)
+  assert.equal(pnrMigration.length, 1, 'unexpected PNR migration shape')
+  assert.match(pnrMigration[0], /^ALTER\s+TABLE\s+bookings\s+MODIFY\s+COLUMN\s+pnr\s+CHAR\(12\)\s+NULL$/i)
+  const [[pnrColumn]] = await pool.query(
+    `SELECT COLUMN_TYPE AS columnType, IS_NULLABLE AS nullable
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'bookings' AND column_name = 'pnr'`,
+  )
+  assert.ok(pnrColumn && /^char\(12\)$/i.test(pnrColumn.columnType), 'PNR column must match the migration type')
+  if (pnrColumn.nullable !== 'YES') await pool.query(pnrMigration[0])
+
+  const allocationMigrationPath = path.resolve(__dirname, '../../database/migrations/003_enforce_booking_passenger_pair.sql')
+  const allocationMigration = fs.readFileSync(allocationMigrationPath, 'utf8')
+    .replace(/^\s*--.*$/gm, '')
+    .split(';')
+    .map((sql) => sql.trim())
+    .filter(Boolean)
+  assert.equal(allocationMigration.length, 2, 'unexpected allocation-integrity migration shape')
+  assert.match(allocationMigration[0], /^ALTER\s+TABLE\s+passengers\s+ADD\s+UNIQUE\s+KEY\s+uq_passenger_booking_pair/i)
+  assert.match(allocationMigration[1], /^ALTER\s+TABLE\s+booking_seats\s+ADD\s+CONSTRAINT\s+fk_booking_seat_booking_passenger/i)
+  const [[{ passengerPairIndex }]] = await pool.query(
+    `SELECT COUNT(DISTINCT index_name) AS passengerPairIndex FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'passengers'
+       AND index_name = 'uq_passenger_booking_pair'`,
+  )
+  const [[{ allocationPassengerForeignKey }]] = await pool.query(
+    `SELECT COUNT(*) AS allocationPassengerForeignKey FROM information_schema.referential_constraints
+     WHERE constraint_schema = DATABASE() AND table_name = 'booking_seats'
+       AND constraint_name = 'fk_booking_seat_booking_passenger'`,
+  )
+  const integrityMigrationObjects = Number(passengerPairIndex) + Number(allocationPassengerForeignKey)
+  if (integrityMigrationObjects === 0) {
+    for (const statement of allocationMigration) await pool.query(statement)
+  } else if (integrityMigrationObjects !== 2) {
+    throw new Error('The isolated test database has a partial Issue #10 integrity migration; refusing to guess its state.')
+  }
 }
 
 async function insertFixture() {
@@ -190,6 +255,13 @@ async function cleanupFixture() {
   const bookingIds = Object.values(fixture.bookingIds)
   if (bookingIds.length) {
     const placeholders = bookingIds.map(() => '?').join(', ')
+    if (ids.userId) {
+      await pool.execute(
+        `DELETE FROM audit_logs
+         WHERE actor_user_id = ? AND entity_type = 'booking' AND entity_id IN (${placeholders})`,
+        [ids.userId, ...bookingIds.map(String)],
+      )
+    }
     await pool.execute(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM booking_seats WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM passengers WHERE booking_id IN (${placeholders})`, bookingIds)
@@ -230,6 +302,16 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
   try {
     await applySchemaToDedicatedTestDatabase()
     await insertFixture()
+
+    await assert.rejects(
+      pool.execute(
+        `INSERT INTO booking_seats (booking_id, seat_id, passenger_id, allocation_status)
+         VALUES (?, ?, ?, 'HELD')`,
+        [fixture.bookingIds.held_pending, fixture.seatIds.available, fixture.passengerIds.confirmed],
+      ),
+      (error) => error.code === 'ER_NO_REFERENCED_ROW_2',
+      'allocation must not associate a booking with another booking’s passenger',
+    )
 
     const expectedInitially = ['available', 'released'].length
     assert.equal(await getAvailability(), expectedInitially)
@@ -413,6 +495,63 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
       assert.equal(Number(raceAllocation.count), 1)
       const [[raceWinner]] = await pool.execute('SELECT booking_id AS bookingId FROM bookings WHERE pnr = ?', [winner.pnr])
       fixture.bookingIds.paymentRaceWinner = raceWinner.bookingId
+
+      // Distinct seats remain bookable concurrently through the real service.
+      const [parallelSeatA] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PARA', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const [parallelSeatB] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PARB', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const availabilityBeforeParallel = await getAvailability()
+      const parallelBookings = await Promise.all([
+        service.create(fixture.created.userId, bookingRequest(parallelSeatA.insertId)),
+        service.create(fixture.created.userId, bookingRequest(parallelSeatB.insertId)),
+      ])
+      assert.equal(parallelBookings.every((booking) => booking.status === 'CONFIRMED'), true)
+      assert.equal(await getAvailability(), availabilityBeforeParallel - 2)
+      for (const [index, booking] of parallelBookings.entries()) {
+        const [[row]] = await pool.execute('SELECT booking_id AS bookingId FROM bookings WHERE pnr = ?', [booking.pnr])
+        fixture.bookingIds[`parallel${index}`] = row.bookingId
+      }
+
+      // A failure after writes have started must roll back booking, passenger,
+      // payment, allocation and inventory changes in the real database.
+      const [rollbackSeat] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'ROLLB', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const [beforeRollbackBookings] = await pool.execute(
+        'SELECT COUNT(*) AS count FROM bookings WHERE user_id = ? AND schedule_id = ?',
+        [fixture.created.userId, fixture.created.scheduleId],
+      )
+      const [beforeRollbackPayments] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM payments p JOIN bookings b ON b.booking_id = p.booking_id
+         WHERE b.user_id = ? AND b.schedule_id = ?`,
+        [fixture.created.userId, fixture.created.scheduleId],
+      )
+      const availabilityBeforeRollback = await getAvailability()
+      const failingService = createBookingService(pool, {
+        async charge() { throw new Error('forced payment adapter failure') },
+      }, { today: () => new Date().toISOString().slice(0, 10) })
+      await assert.rejects(
+        failingService.create(fixture.created.userId, bookingRequest(rollbackSeat.insertId)),
+        /forced payment adapter failure/,
+      )
+      const [afterRollbackBookings] = await pool.execute(
+        'SELECT COUNT(*) AS count FROM bookings WHERE user_id = ? AND schedule_id = ?',
+        [fixture.created.userId, fixture.created.scheduleId],
+      )
+      const [afterRollbackPayments] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM payments p JOIN bookings b ON b.booking_id = p.booking_id
+         WHERE b.user_id = ? AND b.schedule_id = ?`,
+        [fixture.created.userId, fixture.created.scheduleId],
+      )
+      assert.equal(Number(afterRollbackBookings[0].count), Number(beforeRollbackBookings[0].count))
+      assert.equal(Number(afterRollbackPayments[0].count), Number(beforeRollbackPayments[0].count))
+      assert.equal(await getAvailability(), availabilityBeforeRollback)
 
     } finally {
       await connectionA.rollback().catch(() => {})

@@ -42,7 +42,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: integration-root-only
-          MYSQL_DATABASE: railway_reservation_issue4_test
+          MYSQL_DATABASE: railway_reservation_issue10_test
           MYSQL_USER: rrs_test
           MYSQL_PASSWORD: integration-test-only
         ports:
@@ -80,7 +80,7 @@ jobs:
           RRS_MYSQL_TEST_PORT: 3306
           RRS_MYSQL_TEST_USER: rrs_test
           RRS_MYSQL_TEST_PASSWORD: integration-test-only
-          RRS_MYSQL_TEST_DATABASE: railway_reservation_issue4_test
+          RRS_MYSQL_TEST_DATABASE: railway_reservation_issue10_test
         run: npm run test:mysql
 
   frontend-build:
