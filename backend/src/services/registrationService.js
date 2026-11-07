@@ -57,7 +57,7 @@ async function registerPassenger({ name, email, mobile, password }) {
 
   try {
     const [result] = await pool.execute(
-      `INSERT INTO users (full_name, email, mobile, password_hash)
+      `INSERT INTO users (name, email, mobile, password_hash)
        VALUES (?, ?, ?, ?)`,
       [normalizedName, normalizedEmail, normalizedMobile, passwordHash],
     )
