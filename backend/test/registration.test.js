@@ -143,3 +143,22 @@ test('stores a salted bcrypt hash instead of the plaintext password', async () =
     fakePool.execute = originalExecute
   }
 })
+
+test('prevents public registration from granting administrator privileges', async () => {
+  lastInsert = undefined
+
+  const passenger = await registerPassenger({
+    name: 'Role Escalation Test',
+    email: 'role-test@example.com',
+    mobile: '9876543210',
+    password: 'StrongPass123',
+    role: 'ADMIN',
+  })
+
+  assert.equal(passenger.role, 'PASSENGER')
+  assert.match(
+    lastInsert.sql,
+    /INSERT INTO users \(name, email, mobile, password_hash\)/,
+  )
+  assert.equal(lastInsert.params.length, 4)
+})
