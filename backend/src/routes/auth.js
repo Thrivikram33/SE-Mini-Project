@@ -1,7 +1,7 @@
 const express = require('express')
-const bcrypt = require('bcryptjs')
 const { body, validationResult } = require('express-validator')
 const pool = require('../config/db')
+const { verifyPassword } = require('../utils/password')
 
 const router = express.Router()
 
@@ -45,7 +45,7 @@ router.post(
 
       if (
         !user ||
-        !(await bcrypt.compare(password, user.password_hash))
+        !(await verifyPassword(password, user.password_hash))
       ) {
         return res.status(401).json({
           message: 'Invalid email or password.',

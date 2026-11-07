@@ -166,6 +166,25 @@ test('POST login returns 401 for an incorrect password', async () => {
   assert.equal(result.body.message, 'Invalid email or password.')
 })
 
+test('POST login safely rejects an invalid stored password hash', async () => {
+  databaseBehavior = async () => [[{
+    user_id: 7,
+    name: 'Test Passenger',
+    email: 'passenger@example.com',
+    password_hash: 'corrupt-hash',
+    role: 'PASSENGER',
+  }]]
+
+  const result = await requestJson(createTestApp(), '/login', {
+    email: 'passenger@example.com',
+    password: 'CorrectPassword123',
+  })
+
+  assert.equal(result.status, 401)
+  assert.equal(result.body.message, 'Invalid email or password.')
+  assert.equal(JSON.stringify(result.body).includes('corrupt-hash'), false)
+})
+
 test('POST login accepts valid credentials and creates a session', async () => {
   const passwordHash = await bcrypt.hash('CorrectPassword123', 4)
 

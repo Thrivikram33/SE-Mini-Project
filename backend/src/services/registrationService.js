@@ -1,6 +1,6 @@
 
-const bcrypt = require('bcryptjs')
 const pool = require('../config/db')
+const { hashPassword } = require('../utils/password')
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -53,7 +53,7 @@ async function registerPassenger({ name, email, mobile, password }) {
     throw error
   }
 
-  const passwordHash = await bcrypt.hash(password, 12)
+  const passwordHash = await hashPassword(password)
 
   try {
     const [result] = await pool.execute(

@@ -3,6 +3,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const path = require('node:path')
+const bcrypt = require('bcryptjs')
 
 const servicePath = path.resolve(
   __dirname,
@@ -10,8 +11,12 @@ const servicePath = path.resolve(
 )
 
 const originalLoad = Module._load
+let lastInsert
 const fakePool = {
-  execute: async () => [{ insertId: 101 }],
+  execute: async (sql, params) => {
+    lastInsert = { sql, params }
+    return [{ insertId: 101 }]
+  },
 }
 
 Module._load = function (request, parent, isMain) {
@@ -31,6 +36,7 @@ try {
 }
 
 test('registers a passenger and returns a safe passenger object', async () => {
+  lastInsert = undefined
   const passenger = await registerPassenger({
     name: '  Test Passenger  ',
     email: '  PASSENGER@example.com ',
@@ -45,6 +51,13 @@ test('registers a passenger and returns a safe passenger object', async () => {
   assert.equal(passenger.role, 'PASSENGER')
   assert.equal(Object.hasOwn(passenger, 'password'), false)
   assert.equal(Object.hasOwn(passenger, 'password_hash'), false)
+  assert.match(lastInsert.sql, /INSERT INTO users \(name, email, mobile, password_hash\)/)
+  assert.equal(lastInsert.params[0], 'Test Passenger')
+  assert.equal(lastInsert.params[1], 'passenger@example.com')
+  assert.equal(lastInsert.params[2], '9876543210')
+  assert.notEqual(lastInsert.params[3], 'StrongPass123')
+  assert.match(lastInsert.params[3], /^\$2[ab]\$12\$/)
+  assert.equal(await bcrypt.compare('StrongPass123', lastInsert.params[3]), true)
 })
 
 test('rejects a missing name', async () => {
