@@ -34,7 +34,7 @@ router.post(
 
     try {
       const [users] = await pool.execute(
-        `SELECT user_id, name, email, password_hash, role
+        `SELECT user_id, full_name AS name, email, password_hash, role
          FROM users
          WHERE email = ?
          LIMIT 1`,
