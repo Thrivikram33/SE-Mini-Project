@@ -1,9 +1,8 @@
 # Project handoff
 
-Last verified locally: 2026-11-06
-Branch: `feature/seat-allocation-inventory`
-Latest CI-verified commit: `6433806` (`docs(inventory): record passing MySQL CI evidence`)
-Pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), open against `main`
+Last verified locally: 2026-11-08
+Current branch: `feature/issue-15-completion`
+Issue #10 pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), merged into `main`; its latest recorded CI-verified commit is `6433806`.
 
 ## Issue #10 — RRS-F-010
 
@@ -35,4 +34,12 @@ Continuation changes are split into implementation, MySQL test/schema, dependenc
 1. Provide an isolated local MySQL 8 test service and dedicated credentials through the required test-only environment variables, then run `npm.cmd run test:mysql` from `backend/`.
 2. Review migration `003` against any persistent development database before applying it there; preflight for existing mismatched booking/passenger associations.
 3. Implement and verify cancellation only after the project provides the cancellation eligibility and refund policy for this branch.
-4. Review PR #44. Do not merge the PR or close Issue #10 as part of this handoff.
+4. PR #44 is merged; its implementation and CI history are retained above for Issue #10 reference.
+
+## Issue #15 — RRS-F-012 Booking retrieval
+
+The current Issue #15 branch adds passenger-only booking history at `GET /api/bookings` and owner-scoped ticket retrieval at `GET /api/bookings/:pnr`. PNR input is normalized and malformed, unknown, and non-owned values share a safe not-found response. SQL access is parameterized and isolated in `bookingQueryRepository`. The frontend `/bookings` page provides account history and PNR lookup; `/ticket?pnr=...` retrieves a ticket while immediate post-booking ticket navigation remains supported. No schema migration is required.
+
+Local verification on 2026-11-08: backend unit/API suite **PASS (107 tests)**; frontend ESLint **PASS**; frontend production build **PASS**; backend changed-file syntax checks **PASS**. The real MySQL integration run is **BLOCKED locally** because the dedicated `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` variables are absent. The existing `backend/.env` development connection was checked read-only and rejected with `ER_ACCESS_DENIED_ERROR`; no migration or database write was attempted. Issue #15's added MySQL assertions remain subject to CI or a correctly provisioned isolated test database.
+
+Issue #15 PR: [#49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49), open against `main`; Issue #15 remains open. GitHub Actions run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) on test commit `e2a322c` **PASSED**: backend unit tests, isolated MySQL inventory/retrieval/concurrency integration, repository checks, and frontend production build. The workflow was triggered by the PR. This is CI evidence, separate from the blocked local MySQL connection. Do not merge the Issue #15 PR or close Issue #15 as part of this task.

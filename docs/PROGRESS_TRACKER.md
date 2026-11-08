@@ -1,9 +1,34 @@
 # Progress tracker
 
+## Issue #15 — RRS-F-012: Booking retrieval
+
+GitHub Issue: [#15](https://github.com/Thrivikram33/SE-Mini-Project/issues/15) (open)
+Branch: `feature/issue-15-completion`
+Pull Request: pending creation after verification.
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Passenger booking history | IMPLEMENTED; UNIT/API VERIFIED | `GET /api/bookings` uses the session owner; the page displays each passenger's history. Backend suite passes. |
+| PNR ticket retrieval | IMPLEMENTED; UNIT/API VERIFIED | `GET /api/bookings/:pnr` returns booking and passenger seat details; `/ticket?pnr=...` uses the endpoint. Immediate booking ticket navigation remains supported. |
+| Ownership and PNR privacy | UNIT/API VERIFIED | Passenger role required; repository SQL filters by both normalized PNR and session user ID; invalid and non-owned PNRs share `404 BOOKING_NOT_FOUND`. |
+| Database-backed retrieval | VERIFIED IN CI | GitHub Actions run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) passed the isolated MySQL inventory/retrieval/concurrency step. Local test credentials are absent; the configured dev DB denied read-only access. |
+| Frontend lint and production build | VERIFIED LOCALLY | `npm.cmd run lint` and `npm.cmd run build` pass. |
+| Backend tests and syntax | VERIFIED LOCALLY | `npm.cmd test`: 107 pass, 0 fail. `node --check` passed for changed backend files. |
+| Database migration | NOT REQUIRED | Issue #15 uses existing booking, passenger, payment, station, route, and seat schema. No migration was added or applied. |
+| PR and CI | VERIFIED ON TEST COMMIT | [PR #49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49) targets `main`, links #15, and remains open. CI run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) passed all three jobs on `e2a322c`; rerun on the final documentation commit before handoff. |
+
+### Issue #15 changed files
+
+- `backend/src/repositories/bookingQueryRepository.js`: owner-scoped booking history and PNR ticket queries.
+- `backend/src/services/bookingService.js`, `backend/src/routes/bookingRoutes.js`: normalization, authorization integration, and retrieval endpoints.
+- `backend/test/booking-query-repository.test.js`, `backend/test/booking-route.test.js`, `backend/integration/mysql-inventory.integration.js`: repository, route, privacy, and real MySQL coverage.
+- `frontend/src/BookingHistoryPage.jsx`, `frontend/src/BookingTicketPage.jsx`, `frontend/src/App.jsx`: history, PNR lookup, and ticket retrieval.
+- `docs/booking-api.md`, `docs/PROJECT_HANDOFF.md`, `docs/PROGRESS_TRACKER.md`, `docs/TEST_EVIDENCE.md`: API and verified evidence.
+
 ## Issue #10 — RRS-F-010: Seat allocation and inventory updates
 
 GitHub Issue: [#10](https://github.com/Thrivikram33/SE-Mini-Project/issues/10)
-Pull Request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44) (`feature/seat-allocation-inventory` → `main`, open)
+Pull Request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44) (`feature/seat-allocation-inventory` → `main`, merged)
 
 | Area | Status | Evidence / remaining work |
 |---|---|---|
