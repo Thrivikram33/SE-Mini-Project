@@ -526,6 +526,31 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
         'SELECT status FROM payments WHERE booking_id = ?', [confirmedRow.bookingId],
       )
       assert.equal(successfulPayment.status, 'SUCCESS')
+      const retrieved = await service.getPassengerBookingByPnr(fixture.created.userId, confirmed.pnr.toLowerCase())
+      assert.equal(retrieved.bookingId, Number(confirmedRow.bookingId))
+      assert.equal(retrieved.pnr, confirmed.pnr)
+      assert.equal(retrieved.status, 'CONFIRMED')
+      assert.equal(retrieved.paymentStatus, 'SUCCESS')
+      assert.equal(retrieved.origin.code, fixture.created.sourceCode)
+      assert.equal(retrieved.destination.code, fixture.created.destinationCode)
+      assert.equal(retrieved.passengers[0].name, 'Booking Integration')
+      assert.equal(retrieved.passengers[0].seatNumber, 'PAYFAIL')
+      const ownerHistory = await service.getPassengerBookings(fixture.created.userId)
+      assert.ok(ownerHistory.some((booking) => booking.pnr === confirmed.pnr))
+      const [outsider] = await pool.execute(
+        `INSERT INTO users (name, email, password_hash, role)
+         VALUES ('Issue 15 outsider', ?, 'test-only-hash', 'PASSENGER')`,
+        [`issue15-outsider-${fixture.token}@example.invalid`],
+      )
+      try {
+        await assert.rejects(
+          service.getPassengerBookingByPnr(outsider.insertId, confirmed.pnr),
+          (error) => error.statusCode === 404 && error.code === 'BOOKING_NOT_FOUND',
+        )
+        assert.deepEqual(await service.getPassengerBookings(outsider.insertId), [])
+      } finally {
+        await pool.execute('DELETE FROM users WHERE user_id = ?', [outsider.insertId])
+      }
 
       const [raceSeat] = await pool.execute(
         "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PAYRACE', 'NA', 'AVAILABLE')",
