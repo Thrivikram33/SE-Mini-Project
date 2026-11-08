@@ -32,3 +32,18 @@ The integration suite only accepts localhost/loopback and `RRS_MYSQL_TEST_DATABA
 - Review and apply migration `003` only after checking any existing database for booking/passenger association mismatches.
 - Review the passing GitHub Actions checks on the pushed continuation commits.
 - Implement cancellation after its eligibility/refund policy is confirmed; the current branch does not contain this behavior.
+
+## Issue #15 — RRS-F-012 booking retrieval (2026-11-08)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Backend unit and API tests | `cd backend; npm.cmd test` | **PASS: 107 tests, 0 failures, 0 skipped.** Includes new repository owner filters, PNR normalization/not-found behavior, and session/role route checks. |
+| Frontend lint | `cd frontend; npm.cmd run lint` | **PASS.** |
+| Frontend production build | `cd frontend; npm.cmd run build` | **PASS** with Vite 8.3.4. |
+| Changed backend syntax | `node --check` for new repository, booking service, booking routes, added repository test, and MySQL integration test | **PASS.** |
+| MySQL integration | `cd backend; npm.cmd run test:mysql` | **BLOCKED before database connection:** `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are absent. The suite requires the specifically named local-only `railway_reservation_issue10_test` database. |
+| Development DB read-only preflight | Connected using local `backend/.env`, issued only database identity and table/migration metadata reads | **BLOCKED:** MySQL returned `ER_ACCESS_DENIED_ERROR`. No migration or write was attempted. Secrets were not printed. |
+| MySQL ticket integration assertions | `backend/integration/mysql-inventory.integration.js`, run #42475826312 | **PASS in CI** against the disposable local MySQL 8 service: ticket payment/route/date/passenger seat, owner history, and cross-owner denial. |
+| GitHub Actions | [Run #42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312), test commit `e2a322c` | **PASS:** backend tests, isolated MySQL inventory/retrieval/concurrency integration, repository checks, and frontend production build. Final docs commit requires its own CI verification. |
+
+The local MySQL limitation is not represented as a passing database or end-to-end result. The frontend build and unit/API tests do not substitute for running the real MySQL integration test.
