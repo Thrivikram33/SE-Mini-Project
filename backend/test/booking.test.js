@@ -31,15 +31,19 @@ function fixture({
     release() { statements.push('RELEASE') },
     async execute(sql, params) {
       statements.push(sql)
-      if (sql.includes('UPDATE bookings SET pnr')) {
-        if (pnrCollisionCount > 0) {
+      if (/UPDATE\s+bookings\s+SET\s+pnr/i.test(sql)) {        if (pnrCollisionCount > 0) {
           pnrCollisionCount -= 1
           const error = new Error(pnrCollisionMessage)
           error.code = 'ER_DUP_ENTRY'
           throw error
         }
       }
-      if (failOn && sql.includes(failOn)) throw new Error(`failure at ${failOn}`)
+      if (
+  failOn &&
+  sql.replace(/\s+/g, ' ').includes(failOn.replace(/\s+/g, ' '))
+) {
+  throw new Error(`failure at ${failOn}`)
+}
       if (sql.includes('JOIN route_stops os')) return [[{
         originStationId: 1, destinationStationId: 2, originDayOffset: 0,
         originCode: 'DMB', originName: 'Demo Bengaluru', destinationCode: 'DMC', destinationName: 'Demo Chennai',
@@ -75,7 +79,9 @@ test('successful simulated payment confirms booking, allocations and payment in 
   assert.equal(booking.pnr, 'PNR2345678AB')
   assert.equal(booking.totalFare, '450.00')
   assert.equal(booking.passengers[0].seatNumber, '1A')
-  assert.ok(statements.some((sql) => sql.includes("UPDATE bookings SET pnr = ?, status = 'CONFIRMED'")))
+  assert.ok(statements.some((sql) =>
+  /UPDATE\s+bookings\s+SET\s+pnr\s*=\s*\?,\s*status\s*=\s*'CONFIRMED'/i.test(sql)
+))
   assert.ok(statements.some((sql) => sql.includes("UPDATE booking_seats SET allocation_status = 'CONFIRMED'")))
   assert.ok(statements.some((sql) => sql.includes("UPDATE payments SET status = 'SUCCESS'")))
   assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes("UPDATE payments SET status = 'SUCCESS'")))
@@ -116,7 +122,7 @@ test('retries a duplicate PNR and confirms booking with a new PNR', async () => 
   assert.equal(booking.pnr, 'PNR3456789CD')
   assert.equal(booking.status, 'CONFIRMED')
   assert.equal(
-    statements.filter((sql) => sql.includes('UPDATE bookings SET pnr')).length,
+    statements.filter((sql) => /UPDATE\s+bookings\s+SET\s+pnr/i.test(sql)).length,
     2,
   )
   assert.ok(statements.includes('COMMIT'))
@@ -148,7 +154,9 @@ test('failed payment retains failed status without PNR and releases held allocat
   const { service, statements } = fixture({ paymentSuccess: false })
   await assert.rejects(service.create(12, validRequest), (error) => error.statusCode === 402 && error.code === 'PAYMENT_FAILED')
   assert.ok(statements.some((sql) => sql.includes("UPDATE bookings SET status = 'PAYMENT_FAILED'")))
-  assert.ok(statements.some((sql) => sql.includes("UPDATE booking_seats SET allocation_status = 'RELEASED'")))
+  assert.ok(statements.some((sql) =>
+  /UPDATE\s+booking_seats\s+SET\s+allocation_status\s*=\s*'RELEASED'/i.test(sql)
+))
   assert.ok(statements.some((sql) => sql.includes("UPDATE payments SET status = 'FAILED'")))
   assert.equal(statements.some((sql) => sql.includes("status = 'CONFIRMED'")), false)
   assert.equal(statements.some((sql) => sql.includes('UPDATE bookings SET pnr')), false)

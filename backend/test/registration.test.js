@@ -106,6 +106,7 @@ test('maps duplicate database entries to HTTP 409', async () => {
       registerPassenger({
         name: 'Test Passenger',
         email: 'passenger@example.com',
+        mobile: '9876543210',
         password: 'StrongPass123',
       }),
       { statusCode: 409 },
@@ -129,6 +130,7 @@ test('stores a salted bcrypt hash instead of the plaintext password', async () =
     await registerPassenger({
       name: 'Hash Test Passenger',
       email: 'hash-test@example.com',
+      mobile: '9876543210',
       password,
     })
 

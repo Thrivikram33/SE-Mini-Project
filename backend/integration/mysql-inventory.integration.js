@@ -148,6 +148,58 @@ async function applySchemaToDedicatedTestDatabase() {
   } else if (integrityMigrationObjects !== 2) {
     throw new Error('The isolated test database has a partial Issue #10 integrity migration; refusing to guess its state.')
   }
+
+  // Apply migration 004: booking journey details.
+  const journeyMigrationPath = path.resolve(
+    __dirname,
+    '../../database/migrations/004_booking_journey_details.sql',
+  )
+  const journeyMigration = fs.readFileSync(journeyMigrationPath, 'utf8')
+    .replace(/^\s*--.*$/gm, '')
+    .split(';')
+    .map((sql) => sql.trim())
+    .filter(Boolean)
+
+  assert.equal(journeyMigration.length, 1, 'unexpected booking journey migration shape')
+  assert.match(
+    journeyMigration[0],
+    /^ALTER\s+TABLE\s+bookings/i,
+    'booking journey migration must alter only the bookings table',
+  )
+
+  const [[journeyColumns]] = await pool.query(
+    `SELECT
+       SUM(column_name = 'origin_station_id') AS originColumn,
+       SUM(column_name = 'destination_station_id') AS destinationColumn,
+       SUM(column_name = 'class_type') AS classColumn
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'bookings'`,
+  )
+
+  const [[journeyConstraints]] = await pool.query(
+    `SELECT COUNT(*) AS constraintCount
+     FROM information_schema.referential_constraints
+     WHERE constraint_schema = DATABASE()
+       AND table_name = 'bookings'
+       AND constraint_name IN (
+         'fk_booking_origin_station',
+         'fk_booking_destination_station'
+       )`,
+  )
+
+  const journeyObjects =
+    Number(journeyColumns.originColumn) +
+    Number(journeyColumns.destinationColumn) +
+    Number(journeyColumns.classColumn) +
+    Number(journeyConstraints.constraintCount)
+
+  if (journeyObjects === 0) {
+    await pool.query(journeyMigration[0])
+  } else if (journeyObjects !== 5) {
+    throw new Error(
+      'The isolated test database has a partial booking journey migration; refusing to guess its state.',
+    )
+  }
 }
 
 async function insertFixture() {

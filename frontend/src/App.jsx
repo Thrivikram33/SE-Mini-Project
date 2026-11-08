@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import SeatSelectionPage from './SeatSelectionPage'
 import TrainSearchPage from './TrainSearchPage'
 import LoginPage from './LoginPage'
+import RegistrationPage from './RegistrationPage'
 import BookingTicketPage from './BookingTicketPage'
 function HomePage() {
   return (
@@ -210,6 +211,7 @@ function AppLayout() {
           }
         />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegistrationPage />} />
         <Route path="/seats" element={<SeatSelectionPage />} />
         <Route path="/ticket" element={<BookingTicketPage />} />
         <Route
