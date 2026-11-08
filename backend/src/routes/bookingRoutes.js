@@ -6,6 +6,38 @@ const { createPaymentSimulator } = require('../services/paymentSimulator')
 const router = express.Router()
 const bookingService = createBookingService(undefined, createPaymentSimulator())
 
+function sendClientError(error, res, next) {
+  if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 500) {
+    return res.status(error.statusCode).json({
+      error: error.code || 'REQUEST_FAILED',
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    })
+  }
+  return next(error)
+}
+
+router.get('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
+  try {
+    const bookings = await bookingService.getPassengerBookings(req.session.user.userId)
+    return res.status(200).json({ bookings })
+  } catch (error) {
+    return sendClientError(error, res, next)
+  }
+})
+
+router.get('/bookings/:pnr', requireRole('PASSENGER'), async (req, res, next) => {
+  try {
+    const booking = await bookingService.getPassengerBookingByPnr(
+      req.session.user.userId,
+      req.params.pnr,
+    )
+    return res.status(200).json({ booking })
+  } catch (error) {
+    return sendClientError(error, res, next)
+  }
+})
+
 router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
   const userId = Number(req.session.user.userId)
   if (!Number.isSafeInteger(userId) || userId < 1) {
@@ -15,14 +47,7 @@ router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
     const booking = await bookingService.create(userId, req.body)
     return res.status(201).json({ booking })
   } catch (error) {
-    if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 500) {
-      return res.status(error.statusCode).json({
-        error: error.code || 'REQUEST_FAILED',
-        message: error.message,
-        ...(error.details ? { details: error.details } : {}),
-      })
-    }
-    return next(error)
+    return sendClientError(error, res, next)
   }
 })
 

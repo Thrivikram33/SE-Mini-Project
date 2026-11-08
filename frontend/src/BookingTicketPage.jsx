@@ -1,4 +1,5 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 const CLASS_NAMES = {
   '1A': 'First AC',
@@ -8,6 +9,7 @@ const CLASS_NAMES = {
   CC: 'Chair Car',
   '2S': 'Second Sitting',
 }
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
 function Detail({ label, children }) {
   return (
@@ -20,19 +22,42 @@ function Detail({ label, children }) {
 
 export default function BookingTicketPage() {
   const { state } = useLocation()
+  const location = useLocation()
   const navigate = useNavigate()
-  const booking = state?.booking
+  const [retrievedBooking, setRetrievedBooking] = useState(null)
+  const [error, setError] = useState('')
+  const requestedPnr = new URLSearchParams(location.search).get('pnr')
+  const booking = requestedPnr
+    ? (retrievedBooking?.pnr === requestedPnr.toUpperCase() ? retrievedBooking : null)
+    : state?.booking
+  const loading = Boolean(requestedPnr && !booking && !error)
 
-  if (!booking || booking.status !== 'CONFIRMED' || !booking.pnr) {
+  useEffect(() => {
+    if (state?.booking || !requestedPnr) return
+    let active = true
+    fetch(`${API_BASE}/api/bookings/${encodeURIComponent(requestedPnr)}`, { credentials: 'include' })
+      .then(async (response) => {
+        const result = await response.json()
+        if (response.status === 401) {
+          navigate(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`, { replace: true })
+          return null
+        }
+        if (!response.ok) throw new Error(result.message || 'Booking not found.')
+        return result.booking
+      })
+      .then((result) => { if (active && result) setRetrievedBooking(result) })
+      .catch((requestError) => { if (active) setError(requestError.message) })
+    return () => { active = false }
+  }, [location.pathname, location.search, navigate, requestedPnr, state?.booking])
+
+  if (loading || error || !booking || booking.status !== 'CONFIRMED' || !booking.pnr) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-16">
         <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-bold text-slate-900">Ticket details unavailable</h1>
-          <p className="mt-3 text-slate-600">
-            Open this page immediately after a successful booking. For retrieving an existing ticket,
-            use the booking retrieval feature when it is available.
-          </p>
-          <button onClick={() => navigate('/trains')} className="mt-6 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white">
+          <h1 className="text-2xl font-bold text-slate-900">{loading ? 'Retrieving your ticket…' : error ? 'Ticket not found' : 'Ticket details unavailable'}</h1>
+          <p role={error ? 'alert' : undefined} className="mt-3 text-slate-600">{error || (loading ? 'Please wait while we look up your booking.' : 'Open a booking from your history or search by PNR.')}</p>
+          <Link to="/bookings" className="mt-6 inline-flex rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white">My bookings</Link>
+          <button onClick={() => navigate('/trains')} className="ml-3 mt-6 rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700">
             Search trains
           </button>
         </section>
@@ -63,7 +88,7 @@ export default function BookingTicketPage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">RailReserve - E-Ticket</p>
               <h2 className="mt-2 text-2xl font-bold">Booking confirmed</h2>
-              <p className="mt-1 text-sm text-slate-300">Your simulated payment was successful.</p>
+              <p className="mt-1 text-sm text-slate-300">Payment status: {booking.paymentStatus || 'SUCCESS'}.</p>
             </div>
             <span className="rounded-full bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-300">
               {booking.status}
@@ -130,7 +155,7 @@ export default function BookingTicketPage() {
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total fare</p>
               <p className="mt-1 text-2xl font-extrabold text-slate-900">{booking.currency || 'INR'} {money}</p>
             </div>
-            <p className="text-sm font-semibold text-emerald-700">Payment status: SUCCESS</p>
+            <p className="text-sm font-semibold text-emerald-700">Payment status: {booking.paymentStatus || 'SUCCESS'}</p>
           </section>
         </section>
         <footer className="border-t border-slate-200 bg-slate-50 px-6 py-4 text-center text-xs text-slate-500">

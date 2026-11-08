@@ -1,5 +1,6 @@
 ﻿
 const { randomBytes, randomUUID } = require('node:crypto')
+const { createBookingQueryRepository } = require('../repositories/bookingQueryRepository')
 const { validatePassengerDetails } = require('../validators/passengerDetailsValidator')
 
 const CLASSES = new Set(['1A', '2A', '3A', 'SL', 'CC', '2S'])
@@ -153,8 +154,17 @@ function dateAtOrigin(scheduleDate, dayOffset) {
   return date.toISOString().slice(0, 10)
 }
 
+function normalizePassengerId(userId) {
+  const id = Number(userId)
+  if (!Number.isSafeInteger(id) || id < 1) {
+    throw apiError(401, 'AUTH_REQUIRED', 'Authentication required.')
+  }
+  return id
+}
+
 function createBookingService(db, paymentSimulator, options = {}) {
   const database = db || require('../config/db')
+  const bookingQueries = options.bookingQueries || createBookingQueryRepository(database)
   const today = options.today || (() => new Date().toISOString().slice(0, 10))
   const makePnr = options.pnrFactory || pnr
 
@@ -477,118 +487,24 @@ function createBookingService(db, paymentSimulator, options = {}) {
     },
 
     async getPassengerBookings(userId) {
-      const [rows] = await database.execute(
-        `SELECT
-           b.booking_id AS bookingId,
-           b.pnr,
-           b.status,
-           b.total_fare AS totalFare,
-           b.class_type AS classType,
-           b.created_at AS bookedAt,
-           t.train_number AS trainNumber,
-           t.train_name AS trainName,
-           ost.code AS originCode,
-           ost.name AS originName,
-           dst.code AS destinationCode,
-           dst.name AS destinationName,
-           sc.journey_date AS journeyDate,
-           (SELECT p.status
-            FROM payments p
-            WHERE p.booking_id = b.booking_id
-            ORDER BY p.payment_id DESC
-            LIMIT 1) AS paymentStatus
-         FROM bookings b
-         JOIN schedules sc ON sc.schedule_id = b.schedule_id
-         JOIN trains t ON t.train_id = sc.train_id
-         LEFT JOIN stations ost ON ost.station_id = b.origin_station_id
-         LEFT JOIN stations dst ON dst.station_id = b.destination_station_id
-         WHERE b.user_id = ?
-         ORDER BY b.created_at DESC, b.booking_id DESC`,
-        [userId],
-      )
-
-      return rows.map((booking) => ({
-        ...booking,
-        origin: booking.originCode
-          ? { code: booking.originCode, name: booking.originName }
-          : null,
-        destination: booking.destinationCode
-          ? { code: booking.destinationCode, name: booking.destinationName }
-          : null,
-      }))
+      return bookingQueries.listForPassenger(normalizePassengerId(userId))
     },
 
-    async getPassengerBooking(userId, bookingId) {
-      if (
-        !/^[1-9]\d*$/.test(String(bookingId)) ||
-        !Number.isSafeInteger(Number(bookingId))
-      ) {
-        throw apiError(400, 'INVALID_BOOKING_ID', 'A valid booking ID is required.')
-      }
-
-      const [rows] = await database.execute(
-        `SELECT
-           b.booking_id AS bookingId,
-           b.pnr,
-           b.status,
-           b.total_fare AS totalFare,
-           b.class_type AS classType,
-           b.created_at AS bookedAt,
-           t.train_number AS trainNumber,
-           t.train_name AS trainName,
-           ost.code AS originCode,
-           ost.name AS originName,
-           dst.code AS destinationCode,
-           dst.name AS destinationName,
-           sc.journey_date AS journeyDate,
-           (SELECT p.status
-            FROM payments p
-            WHERE p.booking_id = b.booking_id
-            ORDER BY p.payment_id DESC
-            LIMIT 1) AS paymentStatus
-         FROM bookings b
-         JOIN schedules sc ON sc.schedule_id = b.schedule_id
-         JOIN trains t ON t.train_id = sc.train_id
-         LEFT JOIN stations ost ON ost.station_id = b.origin_station_id
-         LEFT JOIN stations dst ON dst.station_id = b.destination_station_id
-         WHERE b.booking_id = ? AND b.user_id = ?
-         LIMIT 1`,
-        [Number(bookingId), userId],
-      )
-
-      if (rows.length === 0) {
+    async getPassengerBookingByPnr(userId, pnrValue) {
+      const passengerId = normalizePassengerId(userId)
+      const normalizedPnr = String(pnrValue || '').trim().toUpperCase()
+      if (!/^[A-Z0-9]{12}$/.test(normalizedPnr)) {
         throw apiError(404, 'BOOKING_NOT_FOUND', 'Booking not found.')
       }
 
-      const booking = rows[0]
-
-      const [passengers] = await database.execute(
-        `SELECT
-           p.passenger_id AS passengerId,
-           p.name,
-           p.age,
-           p.gender,
-           s.seat_number AS seatNumber
-         FROM passengers p
-         LEFT JOIN booking_seats bs
-           ON bs.passenger_id = p.passenger_id
-          AND bs.booking_id = p.booking_id
-         LEFT JOIN seats s ON s.seat_id = bs.seat_id
-         WHERE p.booking_id = ?
-         ORDER BY p.passenger_id`,
-        [Number(bookingId)],
+      const booking = await bookingQueries.findPassengerBookingByPnr(
+        normalizedPnr,
+        passengerId,
       )
-
-      return {
-        ...booking,
-        origin: booking.originCode
-          ? { code: booking.originCode, name: booking.originName }
-          : null,
-        destination: booking.destinationCode
-          ? { code: booking.destinationCode, name: booking.destinationName }
-          : null,
-        passengers,
+      if (!booking) {
+        throw apiError(404, 'BOOKING_NOT_FOUND', 'Booking not found.')
       }
+      return booking
     },
   }
 }

@@ -4,6 +4,7 @@ import TrainSearchPage from './TrainSearchPage'
 import LoginPage from './LoginPage'
 import RegistrationPage from './RegistrationPage'
 import BookingTicketPage from './BookingTicketPage'
+import BookingHistoryPage from './BookingHistoryPage'
 function HomePage() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -201,15 +202,7 @@ function AppLayout() {
           path="/trains"
           element={<TrainSearchPage />}
         />
-        <Route
-          path="/bookings"
-          element={
-            <PlaceholderPage
-              title="My bookings"
-              description="Booking history and ticket retrieval will be connected after authentication and booking APIs are implemented."
-            />
-          }
-        />
+        <Route path="/bookings" element={<BookingHistoryPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegistrationPage />} />
         <Route path="/seats" element={<SeatSelectionPage />} />
