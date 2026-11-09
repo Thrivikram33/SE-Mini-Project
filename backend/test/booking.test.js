@@ -88,6 +88,131 @@ test('successful simulated payment confirms booking, allocations and payment in 
   assert.equal(statements.some((sql) => sql.includes('UPDATE seats')), false)
 })
 
+function cancellationFixture({ status = 'CONFIRMED', ownerId = 12, allocationStatuses = ['CONFIRMED'], failOn } = {}) {
+  const statements = []
+  let bookingStatus = status
+  let allocations = allocationStatuses.map((allocationStatus, index) => ({
+    bookingSeatId: index + 1,
+    status: allocationStatus,
+  }))
+  let committed = false
+  let snapshot
+  const connection = {
+    async beginTransaction() {
+      statements.push('BEGIN')
+      snapshot = { bookingStatus, allocations: allocations.map((row) => ({ ...row })) }
+    },
+    async commit() { statements.push('COMMIT'); committed = true },
+    async rollback() {
+      statements.push('ROLLBACK')
+      bookingStatus = snapshot.bookingStatus
+      allocations = snapshot.allocations
+    },
+    release() { statements.push('RELEASE') },
+    async execute(sql, params) {
+      statements.push(sql)
+      if (failOn && sql.includes(failOn)) throw new Error(`forced failure at ${failOn}`)
+      if (sql.includes('SELECT schedule_id AS scheduleId')) return [[{ scheduleId: 4 }]]
+      if (sql.includes('FROM schedules')) return [[{ scheduleId: 4 }]]
+      if (sql.includes('FROM bookings')) {
+        return [[{ bookingId: Number(params[0]), userId: ownerId, scheduleId: 4, status: bookingStatus }]]
+      }
+      if (sql.includes('FROM booking_seats')) return [allocations.filter((row) => ['HELD', 'CONFIRMED'].includes(row.status))]
+      if (sql.includes("SET status = 'CANCELLED'")) {
+        bookingStatus = 'CANCELLED'
+        return [{ affectedRows: 1 }]
+      }
+      if (sql.includes("SET allocation_status = 'RELEASED'")) {
+        const active = allocations.filter((row) => ['HELD', 'CONFIRMED'].includes(row.status))
+        active.forEach((row) => { row.status = 'RELEASED' })
+        return [{ affectedRows: active.length }]
+      }
+      if (sql.includes('INSERT INTO cancellations')) return [{ insertId: 99 }]
+      return [{ affectedRows: 1 }]
+    },
+  }
+  const service = createBookingService({ async getConnection() { return connection } }, {}, {})
+  return {
+    service,
+    statements,
+    get state() { return { bookingStatus, allocations: allocations.map((row) => ({ ...row })), committed } },
+  }
+}
+
+test('cancels an owned confirmed booking and releases every active allocation atomically', async () => {
+  const fixtureResult = cancellationFixture({
+    allocationStatuses: ['CONFIRMED', 'HELD', 'RELEASED'],
+  })
+  const cancellation = await fixtureResult.service.cancel(12, '31')
+
+  assert.deepEqual(cancellation, {
+    cancellationId: 99,
+    bookingId: 31,
+    status: 'CANCELLED',
+    releasedSeatCount: 2,
+  })
+  assert.equal(fixtureResult.state.bookingStatus, 'CANCELLED')
+  assert.deepEqual(fixtureResult.state.allocations.map((allocation) => allocation.status), ['RELEASED', 'RELEASED', 'RELEASED'])
+  assert.equal(fixtureResult.state.committed, true)
+  assert.ok(fixtureResult.statements.some((sql) => sql.includes('INSERT INTO cancellations')))
+  const auditIndex = fixtureResult.statements.findIndex((sql) => sql.includes('INSERT INTO audit_logs'))
+  assert.ok(auditIndex >= 0)
+  assert.ok(fixtureResult.statements.indexOf('COMMIT') > auditIndex)
+})
+
+test('cancellation validates booking IDs before opening a transaction', async () => {
+  const service = createBookingService({
+    async getConnection() { throw new Error('connection must not be opened') },
+  }, {}, {})
+
+  await assert.rejects(service.cancel(12, '0'), { statusCode: 400, code: 'VALIDATION_ERROR' })
+  await assert.rejects(service.cancel(12, '1.5'), { statusCode: 400, code: 'VALIDATION_ERROR' })
+})
+
+test('cancellation returns not found for another passenger booking without modifying it', async () => {
+  const fixtureResult = cancellationFixture({ ownerId: 99 })
+  await assert.rejects(fixtureResult.service.cancel(12, 31), {
+    statusCode: 404,
+    code: 'BOOKING_NOT_FOUND',
+  })
+  assert.equal(fixtureResult.state.bookingStatus, 'CONFIRMED')
+  assert.equal(fixtureResult.state.committed, false)
+  assert.ok(fixtureResult.statements.includes('ROLLBACK'))
+  assert.equal(fixtureResult.statements.some((sql) => sql.includes("SET status = 'CANCELLED'")), false)
+})
+
+test('cancellation rejects ineligible and already-cancelled bookings without side effects', async () => {
+  for (const status of ['PENDING_PAYMENT', 'PAYMENT_FAILED', 'CANCELLED']) {
+    const fixtureResult = cancellationFixture({ status })
+    await assert.rejects(fixtureResult.service.cancel(12, 31), {
+      statusCode: 409,
+      code: 'BOOKING_NOT_CANCELLABLE',
+    })
+    assert.equal(fixtureResult.state.bookingStatus, status)
+    assert.equal(fixtureResult.state.committed, false)
+    assert.equal(fixtureResult.statements.some((sql) => sql.includes("SET status = 'CANCELLED'")), false)
+  }
+})
+
+test('a repeated cancellation cannot process a booking twice', async () => {
+  const fixtureResult = cancellationFixture()
+  await fixtureResult.service.cancel(12, 31)
+  await assert.rejects(fixtureResult.service.cancel(12, 31), {
+    statusCode: 409,
+    code: 'BOOKING_NOT_CANCELLABLE',
+  })
+  assert.equal(fixtureResult.statements.filter((sql) => sql.includes('INSERT INTO cancellations')).length, 1)
+})
+
+test('cancellation rolls back booking changes when seat release fails', async () => {
+  const fixtureResult = cancellationFixture({ failOn: "SET allocation_status = 'RELEASED'" })
+  await assert.rejects(fixtureResult.service.cancel(12, 31), /forced failure/)
+  assert.equal(fixtureResult.state.bookingStatus, 'CONFIRMED')
+  assert.equal(fixtureResult.state.allocations[0].status, 'CONFIRMED')
+  assert.equal(fixtureResult.state.committed, false)
+  assert.ok(fixtureResult.statements.includes('ROLLBACK'))
+})
+
 test('keeps selected seat order paired with the matching passenger', async () => {
   const { service, allocations } = fixture({
     seatRows: [

@@ -8,6 +8,7 @@ const session = require('express-session')
 const routePath = path.resolve(__dirname, '../src/routes/bookingRoutes.js')
 const originalLoad = Module._load
 let createBehavior
+let cancelBehavior = async () => ({ bookingId: 9, status: 'CANCELLED', releasedSeatCount: 1 })
 let historyBehavior = async () => []
 let pnrBehavior = async () => ({ bookingId: 9, pnr: 'PNR2345678AB', status: 'CONFIRMED' })
 let capturedUserId
@@ -15,6 +16,7 @@ Module._load = function (requestName, parent, isMain) {
   if (parent && parent.filename === routePath && requestName === '../services/bookingService') {
     return { createBookingService: () => ({
       create: async (userId, input) => createBehavior(userId, input),
+      cancel: async (userId, bookingId) => cancelBehavior(userId, bookingId),
       getPassengerBookings: async (userId) => historyBehavior(userId),
       getPassengerBookingByPnr: async (userId, pnr) => pnrBehavior(userId, pnr),
     }) }
@@ -113,4 +115,50 @@ test('booking retrieval returns a safe not-found response for invalid or non-own
   const response = await agent.get('/api/bookings/NOTAREALPNR')
   assert.equal(response.status, 404)
   assert.deepEqual(response.body, { error: 'BOOKING_NOT_FOUND', message: 'Booking not found.' })
+})
+
+test('booking cancellation requires passenger authentication and uses the session owner', async () => {
+  const app = createApp()
+  assert.equal((await require('supertest')(app).post('/api/bookings/9/cancel')).status, 401)
+
+  const agent = require('supertest').agent(app)
+  await agent.post('/test/session/admin')
+  assert.equal((await agent.post('/api/bookings/9/cancel')).status, 403)
+
+  await agent.post('/test/session/passenger')
+  let captured = null
+  cancelBehavior = async (userId, bookingId) => {
+    captured = { userId, bookingId }
+    return { cancellationId: 4, bookingId: Number(bookingId), status: 'CANCELLED', releasedSeatCount: 2 }
+  }
+  const response = await agent.post('/api/bookings/9/cancel').send({ userId: 999 })
+  assert.equal(response.status, 200)
+  assert.deepEqual(captured, { userId: 42, bookingId: '9' })
+  assert.deepEqual(response.body.cancellation, {
+    cancellationId: 4,
+    bookingId: 9,
+    status: 'CANCELLED',
+    releasedSeatCount: 2,
+  })
+})
+
+test('booking cancellation returns safe client errors and hides database details', async () => {
+  const app = createApp()
+  const agent = require('supertest').agent(app)
+  await agent.post('/test/session/passenger')
+
+  cancelBehavior = async () => {
+    throw Object.assign(new Error('Booking not found.'), {
+      statusCode: 404,
+      code: 'BOOKING_NOT_FOUND',
+    })
+  }
+  const missing = await agent.post('/api/bookings/404/cancel')
+  assert.equal(missing.status, 404)
+  assert.deepEqual(missing.body, { error: 'BOOKING_NOT_FOUND', message: 'Booking not found.' })
+
+  cancelBehavior = async () => { throw new Error('private SQL details') }
+  const failed = await agent.post('/api/bookings/9/cancel')
+  assert.equal(failed.status, 500)
+  assert.equal(JSON.stringify(failed.body).includes('private SQL details'), false)
 })

@@ -62,3 +62,23 @@ Apply migration `database/migrations/002_allow_pnr_for_failed_bookings.sql` afte
 ## Inventory behavior
 
 Booking holds the schedule and seat rows in an InnoDB transaction, checks active allocations, and inserts temporary `HELD` rows. Success atomically writes the PNR, confirmed booking, confirmed seat allocations, and successful payment. Failure changes the payment and booking states and marks allocations `RELEASED` before commit. A database error rolls the transaction back. The unique active-seat allocation index remains the final cross-request guard.
+
+## Cancel a booking
+
+`POST /api/bookings/:bookingId/cancel` requires a `PASSENGER` session and only
+cancels a `CONFIRMED` booking owned by that session. Unknown and non-owned
+booking IDs use the same `404 BOOKING_NOT_FOUND` response. Invalid IDs return
+`400 VALIDATION_ERROR`; bookings that are not confirmed return `409
+BOOKING_NOT_CANCELLABLE`. A successful response is `200` with the booking ID,
+`CANCELLED` status, cancellation record ID, and number of released seats.
+
+The operation locks the booking and schedule and atomically updates the booking,
+releases its active seat allocations, records the cancellation, and writes an
+audit event. Historical booking, passenger, payment, and allocation rows remain
+available. Released allocations no longer occupy the schema's unique active
+seat key, so inventory queries and subsequent bookings can use those seats.
+
+This endpoint does not calculate a refund or reverse a simulated payment. The
+cancellation table's existing default refund fields are retained until the
+project's configured refund policy is defined; the endpoint does not present
+them as a refund result.

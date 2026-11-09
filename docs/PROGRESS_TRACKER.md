@@ -1,5 +1,22 @@
 # Progress tracker
 
+## Issue #16 — RRS-F-013: Booking cancellation and seat release
+
+GitHub Issue: [#16](https://github.com/Thrivikram33/SE-Mini-Project/issues/16) (open)
+Branch: `feature/issue-16-booking-cancellation-seat-release`
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Cancellation endpoint | IMPLEMENTED; UNIT/API VERIFIED | Passenger session required; only the owner of a `CONFIRMED` booking can cancel. Unknown/non-owned IDs share a not-found response; invalid and ineligible requests are rejected. |
+| Atomic seat release | IMPLEMENTED; UNIT VERIFIED | Booking and schedule locks, booking status update, active allocation release, cancellation row, and audit event share one transaction. Failure rolls back. |
+| History and availability | IMPLEMENTED; UNIT VERIFIED | Booking and allocation history is preserved; `RELEASED` no longer consumes the unique active-seat key. Real availability and reallocation coverage was added to the guarded MySQL suite but needs CI execution. |
+| Duplicate/concurrent cancellation | UNIT VERIFIED; MYSQL TEST ADDED | Repeated requests return a conflict and do not add another cancellation. Two concurrent cancels plus a competing booking are covered by the MySQL suite; local database execution is blocked. |
+| Payment/refund | NO REFUND POLICY IMPLEMENTED | Successful payment history is preserved. No amount, cancellation fee, refund deadline, or refund processing behavior is invented; the existing cancellation table defaults remain. |
+| Frontend booking history | IMPLEMENTED; LINT/BUILD VERIFIED | Confirmed bookings show a confirmation prompt and cancel action, disable while submitting, update status on success, and display success/failure messages. |
+| Local regression suite | VERIFIED LOCALLY | Backend `npm.cmd test`: 115 passed, 0 failed. Frontend lint and production build passed. |
+| Real MySQL / CI | NOT VERIFIED LOCALLY | `npm.cmd run test:mysql` is blocked before connecting because dedicated test-only MySQL variables are absent. Consult the associated pull request's MySQL CI check for database-backed verification. |
+| Schema migration | NOT REQUIRED | Existing `bookings`, `booking_seats`, `cancellations`, and `audit_logs` schema supports this workflow. |
+
 ## Issue #15 — RRS-F-012: Booking retrieval
 
 GitHub Issue: [#15](https://github.com/Thrivikram33/SE-Mini-Project/issues/15) (open)

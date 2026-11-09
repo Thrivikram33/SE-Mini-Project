@@ -9,6 +9,9 @@ export default function BookingHistoryPage() {
   const [pnr, setPnr] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cancellationError, setCancellationError] = useState('')
+  const [cancellationMessage, setCancellationMessage] = useState('')
+  const [cancellingBookingId, setCancellingBookingId] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -34,6 +37,46 @@ export default function BookingHistoryPage() {
     if (value) navigate(`/ticket?pnr=${encodeURIComponent(value)}`)
   }
 
+  async function cancelBooking(booking) {
+    if (booking.status !== 'CONFIRMED' || cancellingBookingId !== null) return
+    const confirmed = window.confirm(
+      `Cancel booking ${booking.pnr}? The booking will be cancelled and its seats released. This flow does not calculate or process a refund.`,
+    )
+    if (!confirmed) return
+
+    setCancellationError('')
+    setCancellationMessage('')
+    setCancellingBookingId(String(booking.bookingId))
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/bookings/${encodeURIComponent(booking.bookingId)}/cancel`,
+        { method: 'POST', credentials: 'include' },
+      )
+      const result = await response.json()
+      if (response.status === 401) {
+        navigate(`/login?returnTo=${encodeURIComponent('/bookings')}`, { replace: true })
+        return
+      }
+      if (!response.ok) {
+        throw new Error(result.message || 'Booking could not be cancelled.')
+      }
+
+      setBookings((current) => current.map((item) => (
+        String(item.bookingId) === String(booking.bookingId)
+          ? { ...item, status: result.cancellation?.status || 'CANCELLED' }
+          : item
+      )))
+      const releasedCount = Number(result.cancellation?.releasedSeatCount) || 0
+      setCancellationMessage(
+        `Booking ${booking.pnr} cancelled. ${releasedCount} ${releasedCount === 1 ? 'seat has' : 'seats have'} been released.`,
+      )
+    } catch (requestError) {
+      setCancellationError(requestError.message)
+    } finally {
+      setCancellingBookingId(null)
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
       <header className="mb-7">
@@ -49,11 +92,24 @@ export default function BookingHistoryPage() {
       </form>
       {loading && <p role="status" className="py-8 text-slate-600">Loading your bookings…</p>}
       {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
+      {cancellationError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-4 text-red-800">{cancellationError}</p>}
+      {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-4 text-emerald-800">{cancellationMessage}</p>}
       {!loading && !error && bookings.length === 0 && <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center"><h2 className="text-xl font-bold text-slate-900">No bookings yet</h2><p className="mt-2 text-slate-600">Confirmed bookings will appear here.</p><Link className="mt-5 inline-flex rounded-lg bg-sky-500 px-5 py-3 font-semibold text-slate-950" to="/trains">Search trains</Link></section>}
       <div className="grid gap-4">
         {bookings.map((booking) => <article key={booking.bookingId} className="flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div><p className="font-mono text-sm font-bold tracking-wider text-sky-800">PNR {booking.pnr || 'Pending payment'}</p><h2 className="mt-1 text-lg font-bold text-slate-900">{booking.trainNumber} · {booking.trainName}</h2><p className="mt-1 text-sm text-slate-600">{booking.origin?.code || '—'} → {booking.destination?.code || '—'} · {booking.journeyDate || 'Date unavailable'}</p><p className="mt-2 text-sm font-medium text-slate-700">{booking.status} · {booking.currency || 'INR'} {Number(booking.totalFare).toFixed(2)}</p></div>
-          {booking.pnr && <Link className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-50" to={`/ticket?pnr=${encodeURIComponent(booking.pnr)}`}>View ticket</Link>}
+          <div className="flex flex-wrap gap-2">
+            {booking.pnr && booking.status === 'CONFIRMED' && <Link className="rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-50" to={`/ticket?pnr=${encodeURIComponent(booking.pnr)}`}>View ticket</Link>}
+            {booking.status === 'CONFIRMED' && <button
+              type="button"
+              disabled={cancellingBookingId !== null}
+              onClick={() => cancelBooking(booking)}
+              aria-label={`Cancel booking ${booking.pnr}`}
+              className="rounded-lg border border-red-300 px-4 py-2.5 font-semibold text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {cancellingBookingId === String(booking.bookingId) ? 'Cancelling…' : 'Cancel booking'}
+            </button>}
+          </div>
         </article>)}
       </div>
     </main>
