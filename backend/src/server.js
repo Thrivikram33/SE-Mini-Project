@@ -11,6 +11,7 @@ const seatSelectionRoutes = require('./routes/seatSelectionRoutes')
 const fareRoutes = require('./routes/fareRoutes')
 const trainRoutes = require('./routes/trainRoutes')
 const bookingRoutes = require('./routes/bookingRoutes')
+const adminRoutes = require('./routes/adminRoutes')
 const app = express()
 const PORT = Number(process.env.PORT) || 5000
 
@@ -62,6 +63,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api', seatSelectionRoutes)
 app.use('/api', fareRoutes)
 app.use('/api', bookingRoutes)
+app.use('/api', adminRoutes)
 app.use('/api/trains', trainRoutes)
 app.use((_req, res) => {
   res.status(404).json({
