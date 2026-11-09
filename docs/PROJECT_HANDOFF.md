@@ -1,7 +1,7 @@
 # Project handoff
 
-Last verified locally: 2026-11-08
-Current branch: `feature/issue-15-completion`
+Last verified locally: 2026-11-09
+Current branch: `feature/issue-16-booking-cancellation-seat-release`
 Issue #10 pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), merged into `main`; its latest recorded CI-verified commit is `6433806`.
 
 ## Issue #10 — RRS-F-010
@@ -33,7 +33,7 @@ Continuation changes are split into implementation, MySQL test/schema, dependenc
 
 1. Provide an isolated local MySQL 8 test service and dedicated credentials through the required test-only environment variables, then run `npm.cmd run test:mysql` from `backend/`.
 2. Review migration `003` against any persistent development database before applying it there; preflight for existing mismatched booking/passenger associations.
-3. Implement and verify cancellation only after the project provides the cancellation eligibility and refund policy for this branch.
+3. Confirm the project's refund policy before implementing a separate refund workflow; Issue #16 cancellation does not calculate or process refunds.
 4. PR #44 is merged; its implementation and CI history are retained above for Issue #10 reference.
 
 ## Issue #15 — RRS-F-012 Booking retrieval
@@ -43,3 +43,28 @@ The current Issue #15 branch adds passenger-only booking history at `GET /api/bo
 Local verification on 2026-11-08: backend unit/API suite **PASS (107 tests)**; frontend ESLint **PASS**; frontend production build **PASS**; backend changed-file syntax checks **PASS**. The real MySQL integration run is **BLOCKED locally** because the dedicated `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` variables are absent. The existing `backend/.env` development connection was checked read-only and rejected with `ER_ACCESS_DENIED_ERROR`; no migration or database write was attempted. Issue #15's added MySQL assertions remain subject to CI or a correctly provisioned isolated test database.
 
 Issue #15 PR: [#49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49), open against `main`; Issue #15 remains open. GitHub Actions run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) on test commit `e2a322c` **PASSED**: backend unit tests, isolated MySQL inventory/retrieval/concurrency integration, repository checks, and frontend production build. The workflow was triggered by the PR. This is CI evidence, separate from the blocked local MySQL connection. Do not merge the Issue #15 PR or close Issue #15 as part of this task.
+
+## Issue #16 — RRS-F-013 cancellation and seat release
+
+The Issue #16 implementation adds `POST /api/bookings/:bookingId/cancel` for
+the authenticated passenger who owns a `CONFIRMED` booking. It locks the
+booking and schedule, changes the booking to `CANCELLED`, releases all active
+allocations, writes a cancellation row and audit event, then commits atomically.
+Booking, passenger, payment, and allocation history is preserved. The existing
+unique active-seat key becomes available after an allocation is marked
+`RELEASED`; no schema migration is required.
+
+Eligibility uses only the confirmed status and session ownership. No cancellation
+deadline or fee is introduced. The project has no configured refund policy or
+refund simulator, so this Issue #16 change does not calculate a refund or change
+the successful payment record. The existing cancellation row refund defaults
+remain as defined by the schema; they are not reported as a refund result.
+
+Local verification on 2026-11-09: backend `npm.cmd test` **PASS (115/115)**;
+frontend `npm.cmd run lint` and `npm.cmd run build` **PASS**. The dedicated
+MySQL test is **BLOCKED before connection** because
+`RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and
+`RRS_MYSQL_TEST_PASSWORD` are not configured. The isolated MySQL suite now
+contains cancellation, rollback, concurrent duplicate-cancel, availability,
+and seat-reallocation checks, but those assertions are not yet locally verified.
+Use the associated pull request's MySQL CI result as database-backed evidence.

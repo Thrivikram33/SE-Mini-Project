@@ -47,3 +47,17 @@ The integration suite only accepts localhost/loopback and `RRS_MYSQL_TEST_DATABA
 | GitHub Actions | [Run #42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312), test commit `e2a322c` | **PASS:** backend tests, isolated MySQL inventory/retrieval/concurrency integration, repository checks, and frontend production build. Final docs commit requires its own CI verification. |
 
 The local MySQL limitation is not represented as a passing database or end-to-end result. The frontend build and unit/API tests do not substitute for running the real MySQL integration test.
+
+## Issue #16 — RRS-F-013 booking cancellation and seat release (2026-11-09)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Cancellation service and API | `cd backend; npm.cmd test -- --test-name-pattern='cancellation|booking cancellation|booking endpoint'` | **PASS:** 25 tests, 0 failures. Covers ownership, roles, invalid/missing/ineligible IDs, repeated requests, safe errors, status/release transaction ordering, and rollback behavior with mocks. |
+| Full backend regression suite | `cd backend; npm.cmd test` | **PASS: 115 tests, 0 failures, 0 skipped.** |
+| MySQL cancellation integration | `cd backend; npm.cmd run test:mysql` | **BLOCKED before connection:** dedicated `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are not configured. The integration test refuses to run without these explicit test-only settings. |
+| MySQL assertions added | `backend/integration/mysql-inventory.integration.js` | **IMPLEMENTED — NOT VERIFIED LOCALLY:** covers concurrent duplicate cancellation and booking allocation, persisted cancelled status, released allocation, history/audit, reallocation, and rollback after a failure within a real MySQL transaction. Requires CI or an isolated local MySQL 8 test database. |
+| Frontend lint | `cd frontend; npm.cmd run lint` | **PASS.** |
+| Frontend production build | `cd frontend; npm.cmd run build` | **PASS** with Vite. |
+| Database migration | Schema inspection | **NOT REQUIRED:** existing cancellation and generated active-seat columns are sufficient. No migration was added or applied. |
+| Refund processing | Code and schema inspection | **OUT OF SCOPE / POLICY UNDEFINED:** no refund amount or payment reversal is calculated. Existing payment history is retained and no refund is presented as completed. |
+| GitHub Actions | Associated Issue #16 pull request checks | Review the actual workflow result there; local test results do not substitute for MySQL CI. |

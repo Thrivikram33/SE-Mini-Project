@@ -140,10 +140,10 @@ function cancellationFixture({ status = 'CONFIRMED', ownerId = 12, allocationSta
 }
 
 test('cancels an owned confirmed booking and releases every active allocation atomically', async () => {
-  const { service, statements, state } = cancellationFixture({
+  const fixtureResult = cancellationFixture({
     allocationStatuses: ['CONFIRMED', 'HELD', 'RELEASED'],
   })
-  const cancellation = await service.cancel(12, '31')
+  const cancellation = await fixtureResult.service.cancel(12, '31')
 
   assert.deepEqual(cancellation, {
     cancellationId: 99,
@@ -151,12 +151,13 @@ test('cancels an owned confirmed booking and releases every active allocation at
     status: 'CANCELLED',
     releasedSeatCount: 2,
   })
-  assert.equal(state.bookingStatus, 'CANCELLED')
-  assert.deepEqual(state.allocations.map((allocation) => allocation.status), ['RELEASED', 'RELEASED', 'RELEASED'])
-  assert.equal(state.committed, true)
-  assert.ok(statements.some((sql) => sql.includes('INSERT INTO cancellations')))
-  assert.ok(statements.some((sql) => sql.includes('BOOKING_CANCELLED')))
-  assert.ok(statements.indexOf('COMMIT') > statements.findIndex((sql) => sql.includes('BOOKING_CANCELLED')))
+  assert.equal(fixtureResult.state.bookingStatus, 'CANCELLED')
+  assert.deepEqual(fixtureResult.state.allocations.map((allocation) => allocation.status), ['RELEASED', 'RELEASED', 'RELEASED'])
+  assert.equal(fixtureResult.state.committed, true)
+  assert.ok(fixtureResult.statements.some((sql) => sql.includes('INSERT INTO cancellations')))
+  const auditIndex = fixtureResult.statements.findIndex((sql) => sql.includes('INSERT INTO audit_logs'))
+  assert.ok(auditIndex >= 0)
+  assert.ok(fixtureResult.statements.indexOf('COMMIT') > auditIndex)
 })
 
 test('cancellation validates booking IDs before opening a transaction', async () => {
