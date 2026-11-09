@@ -1,5 +1,30 @@
 # Progress tracker
 
+## Issue #18 — RRS-F-015: Administrator management
+
+GitHub Issue: [#18](https://github.com/Thrivikram33/SE-Mini-Project/issues/18) (open)
+Branch: `feature/issue-18-completion`
+Pull Request: pending push and verification.
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Admin authorization | VERIFIED LOCALLY (API tests) | Every `/api/admin/*` route requires `ADMIN`; route coverage verifies unauthenticated 401 and passenger 403 on reads and writes. |
+| Train and route management | IMPLEMENTED; UNIT VERIFIED | Create/update/deactivate/list routes, station reference checks, route validation, transactional writes, and audit logging. Route edits blocked once schedules exist. |
+| Schedule management | IMPLEMENTED; UNIT VERIFIED | Create/update/list; active train and configured route required. Date changes with booking history and cancellation with active bookings are rejected. |
+| Fare and inventory management | IMPLEMENTED; UNIT VERIFIED | Fare upsert and coach/seat creation are transactional; seats with active allocations cannot be altered. |
+| Search consistency | VERIFIED IN CI | GitHub Actions [run #42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006) passed real MySQL assertions for created/updated schedule, fare, seat status, schedule cancellation and train deactivation. Local MySQL test configuration is absent. |
+| Frontend admin workspace | IMPLEMENTED; LINT/BUILD VERIFIED | Responsive `/admin` workspace covers routes, schedules, fares and inventory. No frontend test script exists in package.json. |
+| Database migration | NOT REQUIRED | Existing train, route-stop, schedule, fare, coach, seat and audit tables support this feature. |
+| Full regression suite | VERIFIED LOCALLY | `npm.cmd test`: 146 pass, 0 fail. Frontend lint/build pass; production dependency audit reports 0 vulnerabilities. |
+| PR and CI | VERIFIED ON TEST COMMIT | [PR #52](https://github.com/Thrivikram33/SE-Mini-Project/pull/52) targets `main`, links #18, and remains open. CI run [#42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006) passed all three jobs on `13bad56`; final documentation commit will receive its own CI run. |
+
+### Issue #18 changed files
+
+- `backend/src/repositories/adminManagementRepository.js`, `backend/src/services/adminManagementService.js`, `backend/src/routes/adminRoutes.js`, `backend/src/server.js`.
+- `backend/test/admin-management.test.js`, `backend/test/admin-management-repository.test.js`, `backend/test/admin-route.test.js`, `backend/integration/mysql-inventory.integration.js`.
+- `frontend/src/AdminManagementPage.jsx`, `frontend/src/App.jsx`.
+- `docs/admin-management-api.md`, `docs/PROJECT_HANDOFF.md`, `docs/PROGRESS_TRACKER.md`, `docs/TEST_EVIDENCE.md`.
+
 ## Issue #16 — RRS-F-013: Booking cancellation and seat release
 
 GitHub Issue: [#16](https://github.com/Thrivikram33/SE-Mini-Project/issues/16) (open)
@@ -19,9 +44,9 @@ Branch: `feature/issue-16-booking-cancellation-seat-release`
 
 ## Issue #15 — RRS-F-012: Booking retrieval
 
-GitHub Issue: [#15](https://github.com/Thrivikram33/SE-Mini-Project/issues/15) (open)
+GitHub Issue: [#15](https://github.com/Thrivikram33/SE-Mini-Project/issues/15) (closed after merge)
 Branch: `feature/issue-15-completion`
-Pull Request: pending creation after verification.
+Pull Request: [#49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49) (merged into `main`).
 
 | Area | Status | Evidence / remaining work |
 |---|---|---|
@@ -32,7 +57,7 @@ Pull Request: pending creation after verification.
 | Frontend lint and production build | VERIFIED LOCALLY | `npm.cmd run lint` and `npm.cmd run build` pass. |
 | Backend tests and syntax | VERIFIED LOCALLY | `npm.cmd test`: 107 pass, 0 fail. `node --check` passed for changed backend files. |
 | Database migration | NOT REQUIRED | Issue #15 uses existing booking, passenger, payment, station, route, and seat schema. No migration was added or applied. |
-| PR and CI | VERIFIED ON TEST COMMIT | [PR #49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49) targets `main`, links #15, and remains open. CI run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) passed all three jobs on `e2a322c`; rerun on the final documentation commit before handoff. |
+| PR and CI | VERIFIED | [PR #49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49) was merged to `main` and closed Issue #15. CI run [#42476002787](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42476002787) passed on final commit `e2189a1`. |
 
 ### Issue #15 changed files
 
