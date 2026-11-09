@@ -2,6 +2,7 @@
 const { randomBytes, randomUUID } = require('node:crypto')
 const { createBookingQueryRepository } = require('../repositories/bookingQueryRepository')
 const { validatePassengerDetails } = require('../validators/passengerDetailsValidator')
+const { calculateRefund } = require('./refundCalculationService')
 
 const CLASSES = new Set(['1A', '2A', '3A', 'SL', 'CC', '2S'])
 const PNR_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
@@ -505,21 +506,31 @@ function createBookingService(db, paymentSimulator, options = {}) {
         transactionOpen = true
 
         const [bookings] = await connection.execute(
-          `SELECT booking_id AS bookingId,
-                  user_id AS userId,
-                  schedule_id AS scheduleId,
-                  status
-           FROM bookings
-           WHERE booking_id = ?
+          `SELECT b.booking_id AS bookingId,
+                  b.user_id AS userId,
+                  b.schedule_id AS scheduleId,
+                  b.status AS status,
+                  b.class_type AS classType,
+                  b.origin_station_id AS originStationId,
+                  s.journey_date AS journeyDate,
+                  rs.departure_time AS departureTime,
+                  rs.day_offset AS dayOffset
+           FROM bookings b
+           JOIN schedules s ON s.schedule_id = b.schedule_id
+           JOIN route_stops rs
+             ON rs.train_id = s.train_id
+            AND rs.station_id = b.origin_station_id
+           WHERE b.booking_id = ?
            FOR UPDATE`,
           [id],
         )
+
         const booking = bookings[0]
 
-        // Do not disclose whether another passenger's booking exists.
         if (!booking || Number(booking.userId) !== passengerId) {
           throw apiError(404, 'BOOKING_NOT_FOUND', 'Booking not found.')
         }
+
         if (booking.status !== 'CONFIRMED') {
           throw apiError(
             409,
@@ -528,9 +539,14 @@ function createBookingService(db, paymentSimulator, options = {}) {
           )
         }
 
-        // Booking creation locks the schedule before its seats. Use the same
-        // schedule lock before releasing allocations so create/cancel cannot
-        // concurrently make conflicting availability decisions.
+        if (
+          !booking.departureTime ||
+          !booking.journeyDate ||
+          !booking.classType
+        ) {
+          throw new Error('Required booking refund details are unavailable.')
+        }
+
         await connection.execute(
           `SELECT schedule_id
            FROM schedules
@@ -539,8 +555,57 @@ function createBookingService(db, paymentSimulator, options = {}) {
           [booking.scheduleId],
         )
 
+        const [passengers] = await connection.execute(
+          `SELECT COUNT(*) AS passengerCount
+           FROM passengers
+           WHERE booking_id = ?`,
+          [id],
+        )
+
+        const passengerCount = Number(passengers[0].passengerCount)
+
+        if (!Number.isSafeInteger(passengerCount) || passengerCount < 1) {
+          throw new Error('Valid booking passenger details are unavailable.')
+        }
+
+        const departureDate = new Date(
+          `${dateOnly(booking.journeyDate)}T00:00:00.000Z`,
+        )
+
+        departureDate.setUTCDate(
+          departureDate.getUTCDate() + Number(booking.dayOffset || 0),
+        )
+
+        const [hours, minutes, seconds] = String(booking.departureTime)
+          .split(':')
+          .map(Number)
+
+        departureDate.setUTCHours(hours, minutes, seconds || 0, 0)
+
+        const [payments] = await connection.execute(
+          `SELECT amount
+           FROM payments
+           WHERE booking_id = ? AND status = 'SUCCESS'
+           ORDER BY payment_id DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [id],
+        )
+
+        if (!payments.length) {
+          throw new Error('Successful payment not found for confirmed booking.')
+        }
+
+        const refund = calculateRefund({
+          totalPaid: payments[0].amount,
+          passengerCount,
+          classType: booking.classType,
+          departureAt: departureDate,
+        })
+
         const [allocations] = await connection.execute(
-          `SELECT booking_seat_id AS bookingSeatId, allocation_status AS status
+          `SELECT booking_seat_id AS bookingSeatId,
+                  allocation_status AS status
            FROM booking_seats
            WHERE booking_id = ?
              AND allocation_status IN ('HELD', 'CONFIRMED')
@@ -548,6 +613,7 @@ function createBookingService(db, paymentSimulator, options = {}) {
            FOR UPDATE`,
           [id],
         )
+
         if (allocations.length === 0) {
           throw new Error('Confirmed booking has no active seat allocations.')
         }
@@ -558,6 +624,7 @@ function createBookingService(db, paymentSimulator, options = {}) {
            WHERE booking_id = ? AND status = 'CONFIRMED'`,
           [id],
         )
+
         if (bookingUpdate.affectedRows !== 1) {
           throw apiError(
             409,
@@ -574,20 +641,33 @@ function createBookingService(db, paymentSimulator, options = {}) {
              AND allocation_status IN ('HELD', 'CONFIRMED')`,
           [id],
         )
+
         if (allocationUpdate.affectedRows !== allocations.length) {
           throw new Error('Not all active seat allocations were released.')
         }
 
         const [cancellation] = await connection.execute(
-          `INSERT INTO cancellations (booking_id)
-           VALUES (?)`,
-          [id],
+          `INSERT INTO cancellations
+             (booking_id, refund_amount, refund_status)
+           VALUES (?, ?, ?)`,
+          [id, refund.refundAmount.toFixed(2), refund.refundStatus],
         )
+
         await connection.execute(
           `INSERT INTO audit_logs
-             (actor_user_id, action, entity_type, entity_id)
-           VALUES (?, ?, ?, ?)`,
-          [passengerId, 'BOOKING_CANCELLED', 'booking', String(id)],
+             (actor_user_id, action, entity_type, entity_id, details)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            passengerId,
+            'BOOKING_CANCELLED',
+            'booking',
+            String(id),
+            JSON.stringify({
+              refundAmount: refund.refundAmount,
+              refundStatus: refund.refundStatus,
+              currency: refund.currency,
+            }),
+          ],
         )
 
         await connection.commit()
@@ -598,6 +678,9 @@ function createBookingService(db, paymentSimulator, options = {}) {
           bookingId: id,
           status: 'CANCELLED',
           releasedSeatCount: allocationUpdate.affectedRows,
+          refundAmount: refund.refundAmount,
+          refundStatus: refund.refundStatus,
+          currency: refund.currency,
         }
       } catch (error) {
         if (transactionOpen) await connection.rollback()
@@ -606,7 +689,6 @@ function createBookingService(db, paymentSimulator, options = {}) {
         connection.release()
       }
     },
-
     async getPassengerBookings(userId) {
       return bookingQueries.listForPassenger(normalizePassengerId(userId))
     },

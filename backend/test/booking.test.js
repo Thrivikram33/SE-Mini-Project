@@ -8,7 +8,7 @@ const validRequest = {
   destination: 'DMC',
   classType: 'CC',
   seatIds: [8],
-  passengers: [{ name: 'Pat Passenger', age: 34, gender: 'OTHER' }],
+  passengers: [{ name: 'Pat Passenger', age: 30, gender: 'OTHER' }],
 }
 
 function fixture({
@@ -23,52 +23,84 @@ function fixture({
   const statements = []
   const allocations = []
   let id = 20
-  let transactionOpen = false
+
   const connection = {
-    async beginTransaction() { statements.push('BEGIN'); transactionOpen = true },
-    async commit() { statements.push('COMMIT'); transactionOpen = false },
-    async rollback() { statements.push('ROLLBACK'); transactionOpen = false },
+    async beginTransaction() { statements.push('BEGIN') },
+    async commit() { statements.push('COMMIT') },
+    async rollback() { statements.push('ROLLBACK') },
     release() { statements.push('RELEASE') },
     async execute(sql, params) {
       statements.push(sql)
-      if (/UPDATE\s+bookings\s+SET\s+pnr/i.test(sql)) {        if (pnrCollisionCount > 0) {
-          pnrCollisionCount -= 1
-          const error = new Error(pnrCollisionMessage)
-          error.code = 'ER_DUP_ENTRY'
-          throw error
-        }
+
+      if (/UPDATE\s+bookings\s+SET\s+pnr/i.test(sql) && pnrCollisionCount > 0) {
+        pnrCollisionCount -= 1
+        const error = new Error(pnrCollisionMessage)
+        error.code = 'ER_DUP_ENTRY'
+        throw error
       }
-      if (
-  failOn &&
-  sql.replace(/\s+/g, ' ').includes(failOn.replace(/\s+/g, ' '))
-) {
-  throw new Error(`failure at ${failOn}`)
-}
-      if (sql.includes('JOIN route_stops os')) return [[{
-        originStationId: 1, destinationStationId: 2, originDayOffset: 0,
-        originCode: 'DMB', originName: 'Demo Bengaluru', destinationCode: 'DMC', destinationName: 'Demo Chennai',
-      }]]
-      if (sql.includes('FROM schedules sc')) return [[{
-        scheduleId: 4, journeyDate: '2030-05-12', scheduleStatus: 'SCHEDULED',
-        trainNumber: 'D-100', trainName: 'Demo Coastal Express', fare: '450.00', currency: 'INR',
-      }]]
-      if (sql.includes('FROM seats s')) return seatRows ? [seatRows] : seatAvailable ? [[{
-        seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 0,
-      }]] : [[{
-        seatId: 8, seatNumber: '1A', status: 'AVAILABLE', classType: 'CC', scheduleId: 4, activeAllocation: 1,
-      }]]
+
+      if (failOn && sql.replace(/\s+/g, ' ').includes(failOn.replace(/\s+/g, ' '))) {
+        throw new Error(`failure at ${failOn}`)
+      }
+
+      if (sql.includes('JOIN route_stops os')) {
+        return [[{
+          originStationId: 1,
+          destinationStationId: 2,
+          originDayOffset: 0,
+          originCode: 'DMB',
+          originName: 'Demo Bengaluru',
+          destinationCode: 'DMC',
+          destinationName: 'Demo Chennai',
+        }]]
+      }
+
+      if (sql.includes('FROM schedules sc')) {
+        return [[{
+          scheduleId: 4,
+          journeyDate: '2030-05-12',
+          scheduleStatus: 'SCHEDULED',
+          trainNumber: 'D-100',
+          trainName: 'Demo Coastal Express',
+          fare: '450.00',
+          currency: 'INR',
+        }]]
+      }
+
+      if (sql.includes('FROM seats s')) {
+        return seatRows
+          ? [seatRows]
+          : [[{
+              seatId: 8,
+              seatNumber: '1A',
+              status: 'AVAILABLE',
+              classType: 'CC',
+              scheduleId: 4,
+              activeAllocation: seatAvailable ? 0 : 1,
+            }]]
+      }
+
       if (sql.includes('INSERT INTO booking_seats')) allocations.push(params)
       if (sql.includes('INSERT INTO bookings')) return [{ insertId: 31 }]
       if (sql.includes('INSERT INTO passengers')) return [{ insertId: id++ }]
       if (sql.includes('INSERT INTO payments')) return [{ insertId: id++ }]
+
       return [{ affectedRows: 1 }]
     },
   }
-  const simulator = { async charge() { return { success: paymentSuccess } } }
+
+  const simulator = {
+    async charge() {
+      return { success: paymentSuccess }
+    },
+  }
+
   const service = createBookingService(
-    { async getConnection() { return connection } }, simulator,
+    { async getConnection() { return connection } },
+    simulator,
     { today: () => '2030-01-01', pnrFactory },
   )
+
   return { service, statements, allocations }
 }
 
@@ -88,7 +120,12 @@ test('successful simulated payment confirms booking, allocations and payment in 
   assert.equal(statements.some((sql) => sql.includes('UPDATE seats')), false)
 })
 
-function cancellationFixture({ status = 'CONFIRMED', ownerId = 12, allocationStatuses = ['CONFIRMED'], failOn } = {}) {
+function cancellationFixture({
+  status = 'CONFIRMED',
+  ownerId = 12,
+  allocationStatuses = ['CONFIRMED'],
+  failOn,
+} = {}) {
   const statements = []
   let bookingStatus = status
   let allocations = allocationStatuses.map((allocationStatus, index) => ({
@@ -97,47 +134,108 @@ function cancellationFixture({ status = 'CONFIRMED', ownerId = 12, allocationSta
   }))
   let committed = false
   let snapshot
+
   const connection = {
     async beginTransaction() {
       statements.push('BEGIN')
-      snapshot = { bookingStatus, allocations: allocations.map((row) => ({ ...row })) }
+      snapshot = {
+        bookingStatus,
+        allocations: allocations.map((row) => ({ ...row })),
+      }
     },
-    async commit() { statements.push('COMMIT'); committed = true },
+    async commit() {
+      statements.push('COMMIT')
+      committed = true
+    },
     async rollback() {
       statements.push('ROLLBACK')
       bookingStatus = snapshot.bookingStatus
       allocations = snapshot.allocations
     },
-    release() { statements.push('RELEASE') },
+    release() {
+      statements.push('RELEASE')
+    },
     async execute(sql, params) {
       statements.push(sql)
-      if (failOn && sql.includes(failOn)) throw new Error(`forced failure at ${failOn}`)
-      if (sql.includes('SELECT schedule_id AS scheduleId')) return [[{ scheduleId: 4 }]]
-      if (sql.includes('FROM schedules')) return [[{ scheduleId: 4 }]]
-      if (sql.includes('FROM bookings')) {
-        return [[{ bookingId: Number(params[0]), userId: ownerId, scheduleId: 4, status: bookingStatus }]]
+
+      if (failOn && sql.includes(failOn)) {
+        throw new Error(`forced failure at ${failOn}`)
       }
-      if (sql.includes('FROM booking_seats')) return [allocations.filter((row) => ['HELD', 'CONFIRMED'].includes(row.status))]
+
+      if (sql.includes('FROM bookings')) {
+        return [[{
+          bookingId: Number(params[0]),
+          userId: ownerId,
+          scheduleId: 4,
+          status: bookingStatus,
+          classType: 'SL',
+          totalFare: '1000.00',
+          originStationId: 1,
+          journeyDate: '2026-12-10',
+          departureTime: '12:00:00',
+          dayOffset: 0,
+          passengerCount: 1,
+        }]]
+      }
+      if (sql.includes('COUNT(*) AS passengerCount')) {
+  return [[{ passengerCount: 1 }]]
+}
+      if (sql.includes('FROM payments')) {
+        return [[{ amount: '1000.00' }]]
+      }
+
+      if (sql.includes('FROM schedules')) {
+        return [[{ scheduleId: 4 }]]
+      }
+
+      if (sql.includes('FROM booking_seats')) {
+        return [allocations.filter((row) =>
+          ['HELD', 'CONFIRMED'].includes(row.status),
+        )]
+      }
+
       if (sql.includes("SET status = 'CANCELLED'")) {
         bookingStatus = 'CANCELLED'
         return [{ affectedRows: 1 }]
       }
+
       if (sql.includes("SET allocation_status = 'RELEASED'")) {
-        const active = allocations.filter((row) => ['HELD', 'CONFIRMED'].includes(row.status))
-        active.forEach((row) => { row.status = 'RELEASED' })
+        const active = allocations.filter((row) =>
+          ['HELD', 'CONFIRMED'].includes(row.status),
+        )
+        active.forEach((row) => {
+          row.status = 'RELEASED'
+        })
         return [{ affectedRows: active.length }]
       }
-      if (sql.includes('INSERT INTO cancellations')) return [{ insertId: 99 }]
+
+      if (sql.includes('INSERT INTO cancellations')) {
+        return [{ insertId: 99 }]
+      }
+
       return [{ affectedRows: 1 }]
     },
   }
-  const service = createBookingService({ async getConnection() { return connection } }, {}, {})
+
+  const service = createBookingService(
+    { async getConnection() { return connection } },
+    {},
+    {},
+  )
+
   return {
     service,
     statements,
-    get state() { return { bookingStatus, allocations: allocations.map((row) => ({ ...row })), committed } },
+    get state() {
+      return {
+        bookingStatus,
+        allocations: allocations.map((row) => ({ ...row })),
+        committed,
+      }
+    },
   }
 }
+
 
 test('cancels an owned confirmed booking and releases every active allocation atomically', async () => {
   const fixtureResult = cancellationFixture({
@@ -146,11 +244,14 @@ test('cancels an owned confirmed booking and releases every active allocation at
   const cancellation = await fixtureResult.service.cancel(12, '31')
 
   assert.deepEqual(cancellation, {
-    cancellationId: 99,
-    bookingId: 31,
-    status: 'CANCELLED',
-    releasedSeatCount: 2,
-  })
+  cancellationId: 99,
+  bookingId: 31,
+  status: 'CANCELLED',
+  releasedSeatCount: 2,
+  refundAmount: 880,
+  refundStatus: 'PENDING',
+  currency: 'INR',
+})
   assert.equal(fixtureResult.state.bookingStatus, 'CANCELLED')
   assert.deepEqual(fixtureResult.state.allocations.map((allocation) => allocation.status), ['RELEASED', 'RELEASED', 'RELEASED'])
   assert.equal(fixtureResult.state.committed, true)
