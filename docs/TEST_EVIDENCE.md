@@ -61,3 +61,18 @@ The local MySQL limitation is not represented as a passing database or end-to-en
 | Database migration | Schema inspection | **NOT REQUIRED:** existing cancellation and generated active-seat columns are sufficient. No migration was added or applied. |
 | Refund processing | Code and schema inspection | **OUT OF SCOPE / POLICY UNDEFINED:** no refund amount or payment reversal is calculated. Existing payment history is retained and no refund is presented as completed. |
 | GitHub Actions | Associated Issue #16 pull request checks | Review the actual workflow result there; local test results do not substitute for MySQL CI. |
+
+## Issue #18 — RRS-F-015 administrator management (2026-11-09)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Backend unit/API regression suite | `cd backend; npm.cmd test` | **PASS: 146 tests, 0 failures, 0 skipped.** Includes admin service validation/transactions, repository placeholders, RBAC, safe errors, and existing regression tests. |
+| Frontend lint | `cd frontend; npm.cmd run lint` | **PASS.** |
+| Frontend production build | `cd frontend; npm.cmd run build` | **PASS** with Vite 8.3.4. |
+| Backend syntax and whitespace | `node --check` on changed backend files; `git diff --check` | **PASS.** |
+| Production dependency audit | `cd backend; npm.cmd audit --omit=dev` | **PASS: 0 vulnerabilities.** |
+| Local MySQL integration | `cd backend; npm.cmd run test:mysql` | **BLOCKED before connection:** dedicated test-only host/user/password variables are absent. No test database was modified. |
+| MySQL admin integration scenario | `backend/integration/mysql-inventory.integration.js`, run #42583012006 | **PASS in CI** against the isolated MySQL 8 service: train/route create and update, schedule creation/update/cancel, fare upsert, coach/seat creation, inventory status changes, audit writes, and reflected train-search results. |
+| Frontend component tests | `frontend/package.json` scripts | **NOT AVAILABLE:** no frontend test runner/script is configured. The new admin UI is checked by the existing lint and production build. |
+| Database migration | Schema inspection | **NOT REQUIRED:** used fields and audit logging exist in migrations 001–004. No migration was added or executed. |
+| GitHub Actions | [Run #42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006), test commit `13bad56` | **PASS:** backend tests, isolated MySQL admin lifecycle/search integration, repository checks, and frontend production build. A final run is still needed after the documentation commit. |

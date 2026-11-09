@@ -1,7 +1,7 @@
 # Project handoff
 
 Last verified locally: 2026-11-09
-Current branch: `feature/issue-16-booking-cancellation-seat-release`
+Current branch: `feature/issue-18-completion`
 Issue #10 pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), merged into `main`; its latest recorded CI-verified commit is `6433806`.
 
 ## Issue #10 — RRS-F-010
@@ -42,7 +42,7 @@ The current Issue #15 branch adds passenger-only booking history at `GET /api/bo
 
 Local verification on 2026-11-08: backend unit/API suite **PASS (107 tests)**; frontend ESLint **PASS**; frontend production build **PASS**; backend changed-file syntax checks **PASS**. The real MySQL integration run is **BLOCKED locally** because the dedicated `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` variables are absent. The existing `backend/.env` development connection was checked read-only and rejected with `ER_ACCESS_DENIED_ERROR`; no migration or database write was attempted. Issue #15's added MySQL assertions remain subject to CI or a correctly provisioned isolated test database.
 
-Issue #15 PR: [#49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49), open against `main`; Issue #15 remains open. GitHub Actions run [#42475826312](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42475826312) on test commit `e2a322c` **PASSED**: backend unit tests, isolated MySQL inventory/retrieval/concurrency integration, repository checks, and frontend production build. The workflow was triggered by the PR. This is CI evidence, separate from the blocked local MySQL connection. Do not merge the Issue #15 PR or close Issue #15 as part of this task.
+Issue #15 PR: [#49](https://github.com/Thrivikram33/SE-Mini-Project/pull/49), merged into `main`; Issue #15 is closed. GitHub Actions run [#42476002787](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42476002787) on final Issue #15 commit `e2189a1` **PASSED** all workflow jobs including isolated MySQL retrieval checks.
 
 ## Issue #16 — RRS-F-013 cancellation and seat release
 
@@ -59,6 +59,14 @@ deadline or fee is introduced. The project has no configured refund policy or
 refund simulator, so this Issue #16 change does not calculate a refund or change
 the successful payment record. The existing cancellation row refund defaults
 remain as defined by the schema; they are not reported as a refund result.
+
+## Issue #18 — RRS-F-015 Administrator management
+
+Issue #18 adds an admin-only management API and responsive `/admin` workspace for train routes, schedules, class fares, coaches, and seat inventory. Existing schema support is reused; no migration is required. Mutations are parameterized and transactional, write administrator audit records, and return safe validation/conflict errors. Train and schedule deactivation is non-destructive. Route, schedule-date, and seat changes are guarded to protect schedule and booking references. Passenger search reads the same underlying records.
+
+Local checks on 2026-11-09: backend `npm.cmd test` **PASS (146 tests)**; frontend ESLint and Vite production build **PASS**; backend changed-file `node --check` **PASS**; `npm.cmd audit --omit=dev` **PASS (0 vulnerabilities)**. The real MySQL suite is **BLOCKED locally before connection** because `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, and `RRS_MYSQL_TEST_PASSWORD` are not configured. Admin lifecycle/search assertions were added to the existing MySQL CI suite and require CI confirmation before database-backed success is claimed. No local database writes or migrations were attempted.
+
+Issue #18 PR: [#52](https://github.com/Thrivikram33/SE-Mini-Project/pull/52), open against `main`; Issue #18 remains open. GitHub Actions run [#42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006) on test commit `13bad56` **PASSED**: backend tests, isolated MySQL admin lifecycle/search integration, repository checks, and frontend production build. This CI evidence verifies database-backed train/route/schedule/fare/seat writes and search reflection; the local MySQL run remains blocked for missing dedicated credentials. Issue #15 work remains preserved in its merged history.
 
 Local verification on 2026-11-09: backend `npm.cmd test` **PASS (115/115)**;
 frontend `npm.cmd run lint` and `npm.cmd run build` **PASS**. The dedicated
