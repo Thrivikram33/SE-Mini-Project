@@ -314,6 +314,7 @@ async function cleanupFixture() {
         [ids.userId, ...bookingIds.map(String)],
       )
     }
+    await pool.execute(`DELETE FROM cancellations WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM booking_seats WHERE booking_id IN (${placeholders})`, bookingIds)
     await pool.execute(`DELETE FROM passengers WHERE booking_id IN (${placeholders})`, bookingIds)
@@ -551,6 +552,144 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
       } finally {
         await pool.execute('DELETE FROM users WHERE user_id = ?', [outsider.insertId])
       }
+
+      // Concurrent cancellation requests and a new allocation race against
+      // the real schedule, booking, and generated active-seat locks.
+      const [cancellationSeat] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'CANCEL1', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const cancellationTarget = await service.create(
+        fixture.created.userId,
+        bookingRequest(cancellationSeat.insertId),
+      )
+      fixture.bookingIds.cancellationTarget = cancellationTarget.bookingId
+      const availabilityBeforeCancellationRace = await getAvailability()
+
+      const cancellationRace = await Promise.allSettled([
+        service.cancel(fixture.created.userId, cancellationTarget.bookingId),
+        service.cancel(fixture.created.userId, cancellationTarget.bookingId),
+        service.create(fixture.created.userId, bookingRequest(cancellationSeat.insertId)),
+      ])
+      assert.equal(
+        cancellationRace.slice(0, 2).filter((result) => result.status === 'fulfilled' && result.value.status === 'CANCELLED').length,
+        1,
+      )
+      assert.equal(
+        cancellationRace.slice(0, 2).filter((result) => result.status === 'rejected' && result.reason.code === 'BOOKING_NOT_CANCELLABLE').length,
+        1,
+      )
+      const concurrentReplacement = cancellationRace[2]
+      assert.ok(
+        concurrentReplacement.status === 'fulfilled' ||
+        (concurrentReplacement.status === 'rejected' && concurrentReplacement.reason.code === 'SEATS_UNAVAILABLE'),
+      )
+
+      const [[cancelledRow]] = await pool.execute(
+        'SELECT status FROM bookings WHERE booking_id = ?',
+        [cancellationTarget.bookingId],
+      )
+      assert.equal(cancelledRow.status, 'CANCELLED')
+      const [[releasedRows]] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM booking_seats
+         WHERE booking_id = ? AND allocation_status = 'RELEASED'`,
+        [cancellationTarget.bookingId],
+      )
+      assert.equal(Number(releasedRows.count), 1)
+      const [[activeCancelledRows]] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM booking_seats
+         WHERE booking_id = ? AND allocation_status IN ('HELD', 'CONFIRMED')`,
+        [cancellationTarget.bookingId],
+      )
+      assert.equal(Number(activeCancelledRows.count), 0)
+      const [[cancellationRows]] = await pool.execute(
+        'SELECT COUNT(*) AS count FROM cancellations WHERE booking_id = ?',
+        [cancellationTarget.bookingId],
+      )
+      assert.equal(Number(cancellationRows.count), 1)
+      const [[cancelledPayment]] = await pool.execute(
+        'SELECT status FROM payments WHERE booking_id = ?',
+        [cancellationTarget.bookingId],
+      )
+      assert.equal(cancelledPayment.status, 'SUCCESS')
+      const cancellationHistory = await service.getPassengerBookings(fixture.created.userId)
+      assert.ok(cancellationHistory.some((booking) =>
+        Number(booking.bookingId) === Number(cancellationTarget.bookingId) && booking.status === 'CANCELLED',
+      ))
+      const [[cancelAudit]] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM audit_logs
+         WHERE actor_user_id = ? AND action = 'BOOKING_CANCELLED' AND entity_id = ?`,
+        [fixture.created.userId, String(cancellationTarget.bookingId)],
+      )
+      assert.equal(Number(cancelAudit.count), 1)
+
+      if (concurrentReplacement.status === 'fulfilled') {
+        fixture.bookingIds.cancelReplacement = concurrentReplacement.value.bookingId
+      } else {
+        const replacement = await service.create(
+          fixture.created.userId,
+          bookingRequest(cancellationSeat.insertId),
+        )
+        fixture.bookingIds.cancelReplacement = replacement.bookingId
+      }
+      const [[replacementAllocation]] = await pool.execute(
+        `SELECT COUNT(*) AS count FROM booking_seats
+         WHERE booking_id = ? AND seat_id = ? AND allocation_status = 'CONFIRMED'`,
+        [fixture.bookingIds.cancelReplacement, cancellationSeat.insertId],
+      )
+      assert.equal(Number(replacementAllocation.count), 1)
+      assert.equal(await getAvailability(), availabilityBeforeCancellationRace)
+
+      // Force a failure after the booking status update on a real transaction;
+      // rollback must leave the booking and allocation active and create no history.
+      const [cancellationRollbackSeat] = await pool.execute(
+        "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'CANCRB', 'NA', 'AVAILABLE')",
+        [fixture.created.coachId],
+      )
+      const rollbackTarget = await service.create(
+        fixture.created.userId,
+        bookingRequest(cancellationRollbackSeat.insertId),
+      )
+      fixture.bookingIds.cancellationRollback = rollbackTarget.bookingId
+      const availabilityBeforeCancellationRollback = await getAvailability()
+      const cancellationFailingDatabase = {
+        async getConnection() {
+          const connection = await pool.getConnection()
+          return {
+            beginTransaction: () => connection.beginTransaction(),
+            commit: () => connection.commit(),
+            rollback: () => connection.rollback(),
+            release: () => connection.release(),
+            execute(sql, params) {
+              if (sql.includes("SET allocation_status = 'RELEASED'")) {
+                throw new Error('forced cancellation allocation failure')
+              }
+              return connection.execute(sql, params)
+            },
+          }
+        },
+      }
+      const cancellationFailingService = createBookingService(cancellationFailingDatabase, {})
+      await assert.rejects(
+        cancellationFailingService.cancel(fixture.created.userId, rollbackTarget.bookingId),
+        /forced cancellation allocation failure/,
+      )
+      const [[rollbackBookingState]] = await pool.execute(
+        'SELECT status FROM bookings WHERE booking_id = ?',
+        [rollbackTarget.bookingId],
+      )
+      assert.equal(rollbackBookingState.status, 'CONFIRMED')
+      const [[rollbackAllocationState]] = await pool.execute(
+        'SELECT allocation_status AS status FROM booking_seats WHERE booking_id = ?',
+        [rollbackTarget.bookingId],
+      )
+      assert.equal(rollbackAllocationState.status, 'CONFIRMED')
+      const [[rollbackCancellationCount]] = await pool.execute(
+        'SELECT COUNT(*) AS count FROM cancellations WHERE booking_id = ?',
+        [rollbackTarget.bookingId],
+      )
+      assert.equal(Number(rollbackCancellationCount.count), 0)
+      assert.equal(await getAvailability(), availabilityBeforeCancellationRollback)
 
       const [raceSeat] = await pool.execute(
         "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'PAYRACE', 'NA', 'AVAILABLE')",
