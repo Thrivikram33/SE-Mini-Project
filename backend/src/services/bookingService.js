@@ -162,6 +162,14 @@ function normalizePassengerId(userId) {
   return id
 }
 
+function normalizeBookingId(bookingId) {
+  const id = Number(bookingId)
+  if (!/^[1-9]\d*$/.test(String(bookingId)) || !Number.isSafeInteger(id)) {
+    throw apiError(400, 'VALIDATION_ERROR', 'A valid booking ID is required.')
+  }
+  return id
+}
+
 function createBookingService(db, paymentSimulator, options = {}) {
   const database = db || require('../config/db')
   const bookingQueries = options.bookingQueries || createBookingQueryRepository(database)
@@ -480,6 +488,119 @@ function createBookingService(db, paymentSimulator, options = {}) {
         if (transactionOpen) {
           await connection.rollback()
         }
+        throw error
+      } finally {
+        connection.release()
+      }
+    },
+
+    async cancel(userId, bookingId) {
+      const passengerId = normalizePassengerId(userId)
+      const id = normalizeBookingId(bookingId)
+      const connection = await database.getConnection()
+      let transactionOpen = false
+
+      try {
+        await connection.beginTransaction()
+        transactionOpen = true
+
+        const [bookings] = await connection.execute(
+          `SELECT booking_id AS bookingId,
+                  user_id AS userId,
+                  schedule_id AS scheduleId,
+                  status
+           FROM bookings
+           WHERE booking_id = ?
+           FOR UPDATE`,
+          [id],
+        )
+        const booking = bookings[0]
+
+        // Do not disclose whether another passenger's booking exists.
+        if (!booking || Number(booking.userId) !== passengerId) {
+          throw apiError(404, 'BOOKING_NOT_FOUND', 'Booking not found.')
+        }
+        if (booking.status !== 'CONFIRMED') {
+          throw apiError(
+            409,
+            'BOOKING_NOT_CANCELLABLE',
+            'This booking is not eligible for cancellation.',
+          )
+        }
+
+        // Booking creation locks the schedule before its seats. Use the same
+        // schedule lock before releasing allocations so create/cancel cannot
+        // concurrently make conflicting availability decisions.
+        await connection.execute(
+          `SELECT schedule_id
+           FROM schedules
+           WHERE schedule_id = ?
+           FOR UPDATE`,
+          [booking.scheduleId],
+        )
+
+        const [allocations] = await connection.execute(
+          `SELECT booking_seat_id AS bookingSeatId, allocation_status AS status
+           FROM booking_seats
+           WHERE booking_id = ?
+             AND allocation_status IN ('HELD', 'CONFIRMED')
+           ORDER BY booking_seat_id
+           FOR UPDATE`,
+          [id],
+        )
+        if (allocations.length === 0) {
+          throw new Error('Confirmed booking has no active seat allocations.')
+        }
+
+        const [bookingUpdate] = await connection.execute(
+          `UPDATE bookings
+           SET status = 'CANCELLED'
+           WHERE booking_id = ? AND status = 'CONFIRMED'`,
+          [id],
+        )
+        if (bookingUpdate.affectedRows !== 1) {
+          throw apiError(
+            409,
+            'BOOKING_NOT_CANCELLABLE',
+            'This booking is not eligible for cancellation.',
+          )
+        }
+
+        const [allocationUpdate] = await connection.execute(
+          `UPDATE booking_seats
+           SET allocation_status = 'RELEASED',
+               released_at = CURRENT_TIMESTAMP
+           WHERE booking_id = ?
+             AND allocation_status IN ('HELD', 'CONFIRMED')`,
+          [id],
+        )
+        if (allocationUpdate.affectedRows !== allocations.length) {
+          throw new Error('Not all active seat allocations were released.')
+        }
+
+        const [cancellation] = await connection.execute(
+          `INSERT INTO cancellations (booking_id)
+           VALUES (?)`,
+          [id],
+        )
+        await connection.execute(
+          `INSERT INTO audit_logs
+             (actor_user_id, action, entity_type, entity_id)
+           VALUES (?, ?, ?, ?)`,
+          [passengerId, 'BOOKING_CANCELLED', 'booking', String(id)],
+        )
+
+        await connection.commit()
+        transactionOpen = false
+
+        return {
+          cancellationId: cancellation.insertId,
+          bookingId: id,
+          status: 'CANCELLED',
+          releasedSeatCount: allocationUpdate.affectedRows,
+        }
+      } catch (error) {
+        if (transactionOpen) await connection.rollback()
         throw error
       } finally {
         connection.release()

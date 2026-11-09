@@ -51,4 +51,17 @@ router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
   }
 })
 
+router.post('/bookings/:bookingId/cancel', requireRole('PASSENGER'), async (req, res, next) => {
+  const userId = Number(req.session.user.userId)
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(401).json({ error: 'AUTHENTICATION_REQUIRED', message: 'Authentication required.' })
+  }
+  try {
+    const cancellation = await bookingService.cancel(userId, req.params.bookingId)
+    return res.status(200).json({ cancellation })
+  } catch (error) {
+    return sendClientError(error, res, next)
+  }
+})
+
 module.exports = router
