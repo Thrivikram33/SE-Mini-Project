@@ -48,11 +48,12 @@ function formatDate(value) {
 }
 
 async function assertDifferentStations(source, destination) {
+  // MySQL's default case-insensitive collation handles case; normalized input
+  // and direct equality keep these predicates eligible for station indexes.
   const [stations] = await pool.execute(
     `SELECT station_id AS stationId, code, name
      FROM stations
-     WHERE LOWER(REGEXP_REPLACE(TRIM(name), '[[:space:]]+', ' ')) IN (LOWER(?), LOWER(?))
-        OR LOWER(REGEXP_REPLACE(TRIM(code), '[[:space:]]+', ' ')) IN (LOWER(?), LOWER(?))`,
+     WHERE name IN (?, ?) OR code IN (?, ?)`,
     [source, destination, source, destination],
   )
 
@@ -75,7 +76,6 @@ async function searchTrains({ source, destination, date }) {
     throw invalidRequest('Source and destination must be different stations.')
   }
   const journeyDate = normalizeDate(date)
-  // Resolve names and codes once so aliases for the same stored station are rejected.
   await assertDifferentStations(normalizedSource, normalizedDestination)
 
   const [rows] = await pool.execute(
@@ -123,14 +123,8 @@ async function searchTrains({ source, destination, date }) {
        AND s.status = 'SCHEDULED'
        AND source_stop.departure_time IS NOT NULL
        AND destination_stop.arrival_time IS NOT NULL
-       AND (
-        LOWER(REGEXP_REPLACE(TRIM(source_station.name), '[[:space:]]+', ' ')) = LOWER(?) OR
-        LOWER(REGEXP_REPLACE(TRIM(source_station.code), '[[:space:]]+', ' ')) = LOWER(?)
-       )
-       AND (
-        LOWER(REGEXP_REPLACE(TRIM(destination_station.name), '[[:space:]]+', ' ')) = LOWER(?) OR
-        LOWER(REGEXP_REPLACE(TRIM(destination_station.code), '[[:space:]]+', ' ')) = LOWER(?)
-       )
+       AND (source_station.name = ? OR source_station.code = ?)
+       AND (destination_station.name = ? OR destination_station.code = ?)
      GROUP BY
        t.train_id, t.train_number, t.train_name, s.schedule_id, s.journey_date,
        source_station.code, source_station.name, source_stop.departure_time,
