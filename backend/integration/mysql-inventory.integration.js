@@ -52,6 +52,7 @@ try {
 } finally {
   Module._load = originalLoad
 }
+const { createAdminManagementService } = require('../src/services/adminManagementService')
 
 const fixture = {
   token: crypto.randomBytes(4).toString('hex').toUpperCase(),
@@ -304,6 +305,9 @@ async function insertFixture() {
 async function cleanupFixture() {
   const ids = fixture.created
   // Delete only records inserted by this test, in FK dependency order.
+  if (ids.adminUserId) {
+    await pool.execute('DELETE FROM audit_logs WHERE actor_user_id = ?', [ids.adminUserId])
+  }
   const bookingIds = Object.values(fixture.bookingIds)
   if (bookingIds.length) {
     const placeholders = bookingIds.map(() => '?').join(', ')
@@ -324,11 +328,15 @@ async function cleanupFixture() {
   if (ids.scheduleId) await pool.execute('DELETE FROM fares WHERE schedule_id = ?', [ids.scheduleId])
   if (ids.coachId) await pool.execute('DELETE FROM coaches WHERE coach_id = ?', [ids.coachId])
   if (ids.scheduleId) await pool.execute('DELETE FROM schedules WHERE schedule_id = ?', [ids.scheduleId])
+  if (ids.adminScheduleId) await pool.execute('DELETE FROM schedules WHERE schedule_id = ?', [ids.adminScheduleId])
   if (ids.trainId) await pool.execute('DELETE FROM route_stops WHERE train_id = ?', [ids.trainId])
   if (ids.trainId) await pool.execute('DELETE FROM trains WHERE train_id = ?', [ids.trainId])
+  if (ids.adminTrainId) await pool.execute('DELETE FROM route_stops WHERE train_id = ?', [ids.adminTrainId])
+  if (ids.adminTrainId) await pool.execute('DELETE FROM trains WHERE train_id = ?', [ids.adminTrainId])
   if (ids.sourceId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.sourceId])
   if (ids.destinationId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.destinationId])
   if (ids.userId) await pool.execute('DELETE FROM users WHERE user_id = ?', [ids.userId])
+  if (ids.adminUserId) await pool.execute('DELETE FROM users WHERE user_id = ?', [ids.adminUserId])
 }
 
 async function getAvailability() {
@@ -775,6 +783,111 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
       connectionA.release()
       connectionB.release()
     }
+
+    // Exercise administrator master-data operations against real MySQL, then
+    // prove their route, fare, schedule and seat changes reach passenger search.
+    const [adminUser] = await pool.execute(
+      `INSERT INTO users (name, email, password_hash, role)
+       VALUES ('Issue 18 integration admin', ?, 'test-only-hash', 'ADMIN')`,
+      [`issue18-admin-${fixture.token}@example.invalid`],
+    )
+    fixture.created.adminUserId = adminUser.insertId
+    const adminService = createAdminManagementService(pool)
+    const adminRoute = [
+      { stationCode: fixture.created.sourceCode, arrivalTime: null, departureTime: '09:00:00', dayOffset: 0 },
+      { stationCode: fixture.created.destinationCode, arrivalTime: '10:00:00', departureTime: null, dayOffset: 0 },
+    ]
+    const managedTrain = await adminService.createTrain(adminUser.insertId, {
+      trainNumber: `A18${fixture.token.slice(0, 7)}`,
+      trainName: `Issue 18 Admin ${fixture.token}`,
+      routeStops: adminRoute,
+    })
+    fixture.created.adminTrainId = managedTrain.trainId
+    const updatedManagedTrain = await adminService.updateTrain(adminUser.insertId, managedTrain.trainId, {
+      trainNumber: managedTrain.trainNumber,
+      trainName: `${managedTrain.trainName} Updated`,
+      active: true,
+      routeStops: adminRoute,
+    })
+    assert.equal(updatedManagedTrain.trainName, `${managedTrain.trainName} Updated`)
+    const listedManagedTrain = (await adminService.listTrains()).find((train) => train.trainId === managedTrain.trainId)
+    assert.deepEqual(listedManagedTrain.routeStops.map((stop) => stop.stationCode), [
+      fixture.created.sourceCode, fixture.created.destinationCode,
+    ])
+    const managedDate = new Date()
+    managedDate.setUTCDate(managedDate.getUTCDate() + 40)
+    const firstManagedDate = managedDate.toISOString().slice(0, 10)
+    const managedSchedule = await adminService.createSchedule(adminUser.insertId, {
+      trainId: managedTrain.trainId,
+      journeyDate: firstManagedDate,
+    })
+    fixture.created.adminScheduleId = managedSchedule.scheduleId
+    assert.ok((await adminService.listSchedules()).some((schedule) => schedule.scheduleId === managedSchedule.scheduleId))
+    await adminService.saveFare(adminUser.insertId, managedSchedule.scheduleId, {
+      classType: 'SL', amount: '100.00', currency: 'INR',
+    })
+    assert.equal((await adminService.listFares(managedSchedule.scheduleId))[0].amount, '100.00')
+    const managedCoach = await adminService.addCoach(adminUser.insertId, managedSchedule.scheduleId, {
+      classType: 'SL', coachNumber: 'A18C1',
+      seats: [
+        { seatNumber: '01', berthType: 'LOWER', status: 'AVAILABLE' },
+        { seatNumber: '02', berthType: 'UPPER', status: 'AVAILABLE' },
+      ],
+    })
+    assert.equal(managedCoach.seats.length, 2)
+    const listedCoaches = await adminService.listInventory(managedSchedule.scheduleId)
+    assert.equal(listedCoaches[0].seats.length, 2)
+    const [[managedSeat]] = await pool.execute(
+      'SELECT seat_id AS seatId FROM seats WHERE coach_id = ? AND seat_number = ?',
+      [managedCoach.coachId, '02'],
+    )
+    const searchManaged = async (date) => searchTrains({
+      source: fixture.created.sourceCode,
+      destination: fixture.created.destinationCode,
+      date,
+    })
+    let managedOptions = await searchManaged(firstManagedDate)
+    const initialOption = managedOptions.find((option) => Number(option.scheduleId) === managedSchedule.scheduleId)
+    assert.ok(initialOption, 'created route and schedule should appear in train search')
+    assert.equal(initialOption.fare.amount, 100)
+    assert.equal(initialOption.availableSeats, 2)
+
+    await adminService.saveFare(adminUser.insertId, managedSchedule.scheduleId, {
+      classType: 'SL', amount: '175.50', currency: 'INR',
+    })
+    await adminService.updateSeat(adminUser.insertId, managedSeat.seatId, {
+      seatNumber: '02', berthType: 'UPPER', status: 'BLOCKED',
+    })
+    managedOptions = await searchManaged(firstManagedDate)
+    const changedOption = managedOptions.find((option) => Number(option.scheduleId) === managedSchedule.scheduleId)
+    assert.ok(changedOption)
+    assert.equal(changedOption.fare.amount, 175.5)
+    assert.equal(changedOption.availableSeats, 1)
+
+    const secondManagedDate = new Date(managedDate.getTime())
+    secondManagedDate.setUTCDate(secondManagedDate.getUTCDate() + 1)
+    const updatedDate = secondManagedDate.toISOString().slice(0, 10)
+    await adminService.updateSchedule(adminUser.insertId, managedSchedule.scheduleId, {
+      journeyDate: updatedDate,
+      status: 'SCHEDULED',
+    })
+    assert.equal((await searchManaged(firstManagedDate)).some((option) => Number(option.scheduleId) === managedSchedule.scheduleId), false)
+    assert.equal((await searchManaged(updatedDate)).some((option) => Number(option.scheduleId) === managedSchedule.scheduleId), true)
+    await adminService.updateSchedule(adminUser.insertId, managedSchedule.scheduleId, {
+      journeyDate: updatedDate,
+      status: 'CANCELLED',
+    })
+    assert.equal((await searchManaged(updatedDate)).some((option) => Number(option.scheduleId) === managedSchedule.scheduleId), false)
+    await adminService.updateSchedule(adminUser.insertId, managedSchedule.scheduleId, {
+      journeyDate: updatedDate,
+      status: 'SCHEDULED',
+    })
+    await adminService.updateTrain(adminUser.insertId, managedTrain.trainId, {
+      trainNumber: managedTrain.trainNumber,
+      trainName: managedTrain.trainName,
+      active: false,
+    })
+    assert.equal((await searchManaged(updatedDate)).some((option) => Number(option.scheduleId) === managedSchedule.scheduleId), false)
   } finally {
     await cleanupFixture()
     await pool.end()
