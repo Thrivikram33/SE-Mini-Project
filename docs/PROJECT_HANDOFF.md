@@ -87,6 +87,12 @@ environment and reserved inventory. Local test DB credentials are absent;
 current status is **IMPLEMENTED — NOT VERIFIED**. No database optimization was
 selected without measured evidence.
 
+PR #54 CI run [#43005357080](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43005357080)
+passed repository checks, backend tests, the isolated MySQL inventory and
+concurrency suite, and the frontend build. This verifies functional database
+regressions in CI, but CI does not run the booking load benchmark, so it does
+not establish the RRS-NFR-002 percentile.
+
 Local verification on 2026-11-09: backend `npm.cmd test` **PASS (115/115)**;
 frontend `npm.cmd run lint` and `npm.cmd run build` **PASS**. The dedicated
 MySQL test is **BLOCKED before connection** because

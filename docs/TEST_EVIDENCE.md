@@ -59,7 +59,8 @@ The local MySQL limitation is not represented as a passing database or end-to-en
 | Booking performance baseline | `npm run benchmark:booking` against the pre-change booking path | **NOT MEASURED:** no representative local MySQL database or dedicated benchmark inventory is configured. No baseline values are claimed. |
 | Booking performance result | `npm run benchmark:booking` with documented isolated test inventory | **IMPLEMENTED — NOT VERIFIED:** needs API cookie, schedule, at least 105 reserved seats for defaults, and representative MySQL/runtime environment. Benchmark explicitly refuses to run without required inputs. |
 | RRS-NFR-002 threshold | Successful request P95, request-to-response minus measured simulator duration, target <= 3,000 ms | **NOT VERIFIED:** no actual percentile is available. No optimization or passing claim is made absent measured evidence. |
-| MySQL concurrency and persistence | Existing `npm.cmd run test:mysql` | **Not run locally:** dedicated test credentials/environment are not configured. Existing CI workflow runs functional MySQL tests but not this load benchmark. |
+| MySQL concurrency and persistence | CI run [#43005357080](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43005357080) | **PASS in CI:** existing isolated MySQL inventory and concurrency suite. This is functional verification, not the Issue #20 load benchmark. Local test credentials remain unavailable. |
+| GitHub Actions | PR #54, run [#43005357080](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43005357080) | **PASS:** repository checks, backend tests, isolated MySQL integration, and frontend build. The run does not execute `benchmark:booking`; P95 remains unverified. |
 
 ## Issue #16 — RRS-F-013 booking cancellation and seat release (2026-11-09)
 
