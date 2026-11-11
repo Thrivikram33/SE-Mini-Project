@@ -82,3 +82,37 @@ This endpoint does not calculate a refund or reverse a simulated payment. The
 cancellation table's existing default refund fields are retained until the
 project's configured refund policy is defined; the endpoint does not present
 them as a refund result.
+
+## Booking response-time benchmark (RRS-NFR-002)
+
+The acceptance criterion is P95 at most 3,000 ms for booking confirmation,
+excluding simulated payment latency. The booking endpoint adds a `Server-Timing`
+header with `booking-processing` (service execution, including validation,
+connection checkout/release, SQL, transaction and response-object creation,
+minus only simulator work) and `simulated-payment` (time spent inside
+`paymentSimulator.charge`). The JSON response is unchanged. The simulator
+currently performs no artificial wait and no real financial settlement; its
+measured latency is expected to be near zero. Payment-result persistence,
+confirmation and commit are outside the simulator and remain included.
+
+Run `npm run benchmark:booking` from `backend/` against a running API backed by
+an isolated MySQL test database. Set `BASE_URL`, an authenticated passenger
+`COOKIE` header value, `SCHEDULE_ID`, `SOURCE`, `DESTINATION`, and
+`SEAT_IDS` (comma-separated). Optional settings are `REQUESTS` (default 100,
+minimum 20), `WARMUP` (default 5), `CONCURRENCY` (default 1), `CLASS_TYPE`
+(default `SL`) and `DATABASE_ENVIRONMENT`. Reserve at least `REQUESTS + WARMUP`
+available seats in that schedule: every successful booking consumes one seat,
+and the script does not clean up or mutate earlier bookings. Use a disposable
+inventory fixture and a dedicated passenger session.
+
+Warm-up requests run sequentially and are excluded from the sample. The
+benchmark reports successful and failed requests separately, total observed
+client response time, backend service time, measured simulator time and
+request-to-response time minus only that measured simulator interval. P50,
+P90, P95 and P99 use nearest-rank (`ceil(n * percentile)`) over successful
+measured requests; maximum is reported separately. Failed requests are never
+mixed into the success percentile. Hardware, runtime and database environment
+must be recorded alongside results. No representative local MySQL benchmark
+has been run for this change, so the 3-second criterion remains
+**IMPLEMENTED — NOT VERIFIED** until the script is run with representative
+inventory and concurrency.

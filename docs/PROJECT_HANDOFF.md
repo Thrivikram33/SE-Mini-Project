@@ -68,6 +68,25 @@ Local checks on 2026-11-09: backend `npm.cmd test` **PASS (146 tests)**; fronten
 
 Issue #18 PR: [#52](https://github.com/Thrivikram33/SE-Mini-Project/pull/52), open against `main`; Issue #18 remains open. GitHub Actions run [#42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006) on test commit `13bad56` **PASSED**: backend tests, isolated MySQL admin lifecycle/search integration, repository checks, and frontend production build. This CI evidence verifies database-backed train/route/schedule/fare/seat writes and search reflection; the local MySQL run remains blocked for missing dedicated credentials. Issue #15 work remains preserved in its merged history.
 
+## Issue #20 — RRS-NFR-002 booking response time
+
+The exact acceptance criterion is successful booking confirmation P95 at most
+3,000 ms excluding simulated payment latency. `POST /api/bookings` now emits
+additive `Server-Timing` metrics: full booking-service work and the separately
+measured duration inside the payment simulator. The JSON response, payment
+outcomes, transaction flow, seat locking/allocation, PNR collision retry and
+database writes remain unchanged. Inspection found that the current simulator
+does not create an artificial delay, so there is no payment wait to remove.
+
+`backend/scripts/benchmark-booking.js` exercises the authenticated API with
+caller-reserved seats, excludes warm-up requests, separates failed from
+successful results, and reports nearest-rank P50/P90/P95/P99 plus max and
+throughput. Each successful benchmark call consumes its supplied seat. No
+baseline or final P95 can be claimed without a representative isolated MySQL
+environment and reserved inventory. Local test DB credentials are absent;
+current status is **IMPLEMENTED — NOT VERIFIED**. No database optimization was
+selected without measured evidence.
+
 Local verification on 2026-11-09: backend `npm.cmd test` **PASS (115/115)**;
 frontend `npm.cmd run lint` and `npm.cmd run build` **PASS**. The dedicated
 MySQL test is **BLOCKED before connection** because
