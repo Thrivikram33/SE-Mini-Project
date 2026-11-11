@@ -776,7 +776,23 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
 
         assert.equal(Number(allocation.count), 1, `round ${round}: only one active allocation is allowed`)
 
+
         fixture.bookingIds[`stress${round}`] = successful[0].value.bookingId
+                // Release the winning allocation and verify the seat can be booked again.
+        await pool.execute(
+          `UPDATE booking_seats
+           SET allocation_status = 'RELEASED', released_at = CURRENT_TIMESTAMP
+           WHERE booking_id = ? AND seat_id = ?`,
+          [successful[0].value.bookingId, stressSeat.insertId],
+        )
+
+        const replacement = await service.create(
+          fixture.created.userId,
+          bookingRequest(stressSeat.insertId),
+        )
+
+        assert.equal(replacement.status, 'CONFIRMED')
+        fixture.bookingIds[`stressReplacement${round}`] = replacement.bookingId
       }
 
       // A failure after writes have started must roll back booking, passenger,
