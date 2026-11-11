@@ -48,6 +48,20 @@ The integration suite only accepts localhost/loopback and `RRS_MYSQL_TEST_DATABA
 
 The local MySQL limitation is not represented as a passing database or end-to-end result. The frontend build and unit/API tests do not substitute for running the real MySQL integration test.
 
+## Issue #20 — RRS-NFR-002 booking response time (2026-11-11)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Booking timing boundary | `Server-Timing` on successful `POST /api/bookings`; monotonic `performance.now()` in service and simulator | **PASS (unit/API):** reports backend processing separately from simulator time; total client-observed duration is measured by the benchmark. JSON body remains unchanged. |
+| Payment behavior | `backend/test/paymentSimulator.test.js`, booking success/failure regression tests | **PASS (unit):** success/failure semantics retained; current simulator has no artificial delay. |
+| Backend regression suite | `cd backend; npm.cmd test` | **PASS: 151 tests, 0 failures, 0 skipped.** |
+| Backend syntax | `node --check` for changed backend JavaScript | **PASS.** |
+| Booking performance baseline | `npm run benchmark:booking` against the pre-change booking path | **NOT MEASURED:** no representative local MySQL database or dedicated benchmark inventory is configured. No baseline values are claimed. |
+| Booking performance result | `npm run benchmark:booking` with documented isolated test inventory | **IMPLEMENTED — NOT VERIFIED:** needs API cookie, schedule, at least 105 reserved seats for defaults, and representative MySQL/runtime environment. Benchmark explicitly refuses to run without required inputs. |
+| RRS-NFR-002 threshold | Successful request P95, request-to-response minus measured simulator duration, target <= 3,000 ms | **NOT VERIFIED:** no actual percentile is available. No optimization or passing claim is made absent measured evidence. |
+| MySQL concurrency and persistence | CI run [#43005357080](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43005357080) | **PASS in CI:** existing isolated MySQL inventory and concurrency suite. This is functional verification, not the Issue #20 load benchmark. Local test credentials remain unavailable. |
+| GitHub Actions | PR #54, run [#43005357080](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43005357080) | **PASS:** repository checks, backend tests, isolated MySQL integration, and frontend build. The run does not execute `benchmark:booking`; P95 remains unverified. |
+
 ## Issue #16 — RRS-F-013 booking cancellation and seat release (2026-11-09)
 
 | Area | Command / evidence | Result |

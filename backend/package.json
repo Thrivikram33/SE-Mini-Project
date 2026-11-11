@@ -10,7 +10,8 @@
     "start": "node src/server.js",
     "test": "node --test",
     "test:mysql": "node --test integration/mysql-inventory.integration.js",
-    "benchmark:train-search": "node scripts/benchmark-train-search.js"
+    "benchmark:train-search": "node scripts/benchmark-train-search.js",
+    "benchmark:booking": "node scripts/benchmark-booking.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

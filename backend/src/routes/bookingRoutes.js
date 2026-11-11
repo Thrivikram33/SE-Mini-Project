@@ -44,7 +44,14 @@ router.post('/bookings', requireRole('PASSENGER'), async (req, res, next) => {
     return res.status(401).json({ error: 'AUTHENTICATION_REQUIRED', message: 'Authentication required.' })
   }
   try {
-    const booking = await bookingService.create(userId, req.body)
+    const booking = await bookingService.create(userId, req.body, {
+      onMetrics: ({ bookingProcessingMs, simulatedPaymentLatencyMs }) => {
+        res.setHeader(
+          'Server-Timing',
+          `booking-processing;dur=${bookingProcessingMs.toFixed(3)}, simulated-payment;dur=${simulatedPaymentLatencyMs.toFixed(3)}`,
+        )
+      },
+    })
     return res.status(201).json({ booking })
   } catch (error) {
     return sendClientError(error, res, next)
