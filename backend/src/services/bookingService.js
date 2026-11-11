@@ -1,5 +1,6 @@
 ﻿
 const { randomBytes, randomUUID } = require('node:crypto')
+const { performance } = require('node:perf_hooks')
 const { createBookingQueryRepository } = require('../repositories/bookingQueryRepository')
 const { validatePassengerDetails } = require('../validators/passengerDetailsValidator')
 const { calculateRefund } = require('./refundCalculationService')
@@ -178,10 +179,13 @@ function createBookingService(db, paymentSimulator, options = {}) {
   const makePnr = options.pnrFactory || pnr
 
   return {
-    async create(userId, input) {
+    async create(userId, input, options = {}) {
+      const startedAt = performance.now()
+      let simulatedPaymentLatencyMs = 0
       const booking = normalize(input)
       const connection = await database.getConnection()
       let transactionOpen = false
+      let completed = false
 
       try {
         await connection.beginTransaction()
@@ -368,6 +372,9 @@ function createBookingService(db, paymentSimulator, options = {}) {
           amount: totalFare,
           outcome: booking.paymentOutcome,
         })
+        simulatedPaymentLatencyMs = Number.isFinite(result.simulatedLatencyMs)
+          ? Math.max(0, result.simulatedLatencyMs)
+          : 0
 
         if (!result.success) {
           await connection.execute(
@@ -459,7 +466,7 @@ function createBookingService(db, paymentSimulator, options = {}) {
         await connection.commit()
         transactionOpen = false
 
-        return {
+        const response = {
           bookingId: created.insertId,
           pnr: confirmedPnr,
           status: 'CONFIRMED',
@@ -485,6 +492,8 @@ function createBookingService(db, paymentSimulator, options = {}) {
             ).seatNumber,
           })),
         }
+        completed = true
+        return response
       } catch (error) {
         if (transactionOpen) {
           await connection.rollback()
@@ -492,6 +501,19 @@ function createBookingService(db, paymentSimulator, options = {}) {
         throw error
       } finally {
         connection.release()
+        if (completed) {
+          try {
+            options.onMetrics?.({
+              bookingProcessingMs: Math.max(
+                0,
+                performance.now() - startedAt - simulatedPaymentLatencyMs,
+              ),
+              simulatedPaymentLatencyMs,
+            })
+          } catch {
+            // Observability must not change an already committed booking result.
+          }
+        }
       }
     },
 

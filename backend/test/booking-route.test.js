@@ -15,7 +15,7 @@ let capturedUserId
 Module._load = function (requestName, parent, isMain) {
   if (parent && parent.filename === routePath && requestName === '../services/bookingService') {
     return { createBookingService: () => ({
-      create: async (userId, input) => createBehavior(userId, input),
+      create: async (userId, input, options) => createBehavior(userId, input, options),
       cancel: async (userId, bookingId) => cancelBehavior(userId, bookingId),
       getPassengerBookings: async (userId) => historyBehavior(userId),
       getPassengerBookingByPnr: async (userId, pnr) => pnrBehavior(userId, pnr),
@@ -69,6 +69,24 @@ test('booking endpoint derives the booking owner from the passenger session', as
   assert.equal(response.status, 201)
   assert.equal(capturedUserId, 42)
   assert.equal(response.body.booking.pnr, 'PNR2345678AB')
+})
+
+test('booking endpoint exposes measured timings without changing the response body', async () => {
+  const app = createApp()
+  const agent = require('supertest').agent(app)
+  await agent.post('/test/session/passenger')
+  createBehavior = async (_userId, _input, options) => {
+    options.onMetrics({ bookingProcessingMs: 12.34567, simulatedPaymentLatencyMs: 0.001 })
+    return { bookingId: 9, status: 'CONFIRMED' }
+  }
+
+  const response = await agent.post('/api/bookings').send({})
+  assert.equal(response.status, 201)
+  assert.deepEqual(response.body, { booking: { bookingId: 9, status: 'CONFIRMED' } })
+  assert.equal(
+    response.headers['server-timing'],
+    'booking-processing;dur=12.346, simulated-payment;dur=0.001',
+  )
 })
 
 test('booking endpoint returns field-level validation details and safe server errors', async () => {

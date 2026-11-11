@@ -1,5 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const { performance } = require('node:perf_hooks')
 const { createBookingService } = require('../src/services/bookingService')
 
 const validRequest = {
@@ -19,6 +20,7 @@ function fixture({
   pnrFactory = () => 'PNR2345678AB',
   pnrCollisionCount = 0,
   pnrCollisionMessage = "Duplicate entry for key 'uq_bookings_pnr'",
+  simulatedPaymentDelayMs = 0,
 } = {}) {
   const statements = []
   const allocations = []
@@ -91,7 +93,14 @@ function fixture({
 
   const simulator = {
     async charge() {
-      return { success: paymentSuccess }
+      const startedAt = performance.now()
+      if (simulatedPaymentDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, simulatedPaymentDelayMs))
+      }
+      return {
+        success: paymentSuccess,
+        simulatedLatencyMs: performance.now() - startedAt,
+      }
     },
   }
 
@@ -103,6 +112,19 @@ function fixture({
 
   return { service, statements, allocations }
 }
+
+test('booking timing subtracts only measured simulator latency and reports after connection release', async () => {
+  const { service, statements } = fixture({ simulatedPaymentDelayMs: 25 })
+  let metrics
+  const startedAt = performance.now()
+  await service.create(12, validRequest, { onMetrics: (value) => { metrics = value } })
+  const totalServiceMs = performance.now() - startedAt
+
+  assert.ok(metrics.simulatedPaymentLatencyMs >= 20)
+  assert.ok(metrics.bookingProcessingMs > 0)
+  assert.ok(Math.abs(metrics.bookingProcessingMs + metrics.simulatedPaymentLatencyMs - totalServiceMs) < 10)
+  assert.ok(statements.indexOf('RELEASE') > statements.indexOf('COMMIT'))
+})
 
 test('successful simulated payment confirms booking, allocations and payment in one transaction', async () => {
   const { service, statements } = fixture()
