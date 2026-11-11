@@ -11,7 +11,9 @@
     "test": "node --test",
     "test:mysql": "node --test integration/mysql-inventory.integration.js",
     "benchmark:train-search": "node scripts/benchmark-train-search.js",
-    "benchmark:booking": "node scripts/benchmark-booking.js"
+    "benchmark:booking": "node scripts/benchmark-booking.js",
+    "monitor:availability": "node scripts/monitor-availability.js",
+    "report:availability": "node scripts/monitor-availability.js --report"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
