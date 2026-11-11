@@ -1,5 +1,21 @@
 # Progress tracker
 
+## Issue #23 — RRS-SR-003: Secure network communication (2026-11-11)
+
+GitHub Issue: [#23](https://github.com/Thrivikram33/SE-Mini-Project/issues/23)
+Branch: `feature/issue-23-completion`
+Pull Request: not yet created.
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Production startup configuration | VERIFIED LOCALLY | Startup requires HTTPS `PUBLIC_API_URL` and `CLIENT_ORIGIN`, plus `TRUST_PROXY` from 1 through 10; invalid/missing values are covered by backend tests. |
+| API transport enforcement | VERIFIED LOCALLY | The production middleware returns `426 HTTPS_REQUIRED` unless Express sees TLS directly or through the configured proxy; local HTTP development remains allowed. |
+| Session and browser security | VERIFIED LOCALLY | Production enables secure session cookies, HSTS, and exact-origin credentialed CORS. Frontend production builds reject unsafe API URLs, and runtime refuses to render over HTTP. |
+| Backend suite | VERIFIED LOCALLY | `cd backend; npm test`: 168 passed, 0 failed, 0 skipped. |
+| Frontend tests, lint, build | VERIFIED LOCALLY | `cd frontend; npm test`: 11 passed; `npm run lint`: passed; `npm run build`: passed. |
+| Live deployment TLS | NOT VERIFIED | No deployment/reverse-proxy configuration exists in this repository. Certificate, public HTTPS, edge redirect, header sanitation, and network isolation need a real hosting environment. |
+| Release | IN PROGRESS | Work is isolated on `feature/issue-23-completion`; no push or PR has been created yet. |
+
 ## Issue #18 — RRS-F-015: Administrator management
 
 GitHub Issue: [#18](https://github.com/Thrivikram33/SE-Mini-Project/issues/18) (open)
