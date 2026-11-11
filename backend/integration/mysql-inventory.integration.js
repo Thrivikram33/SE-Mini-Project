@@ -741,6 +741,44 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
         fixture.bookingIds[`parallel${index}`] = row.bookingId
       }
 
+      // Repeat same-seat booking races with five independent requests.
+      for (let round = 1; round <= 3; round += 1) {
+        const [stressSeat] = await pool.execute(
+          'INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, ?, \'NA\', \'AVAILABLE\')',
+          [fixture.created.coachId, `STR${round}`],
+        )
+
+        const results = await Promise.allSettled(
+          Array.from({ length: 5 }, () =>
+            service.create(
+              fixture.created.userId,
+              bookingRequest(stressSeat.insertId),
+            ),
+          ),
+        )
+
+        const successful = results.filter((result) => result.status === 'fulfilled')
+        const rejected = results.filter((result) => result.status === 'rejected')
+
+        assert.equal(successful.length, 1, `round ${round}: exactly one booking must succeed`)
+        assert.equal(rejected.length, 4, `round ${round}: four competing bookings must fail`)
+        assert.ok(
+          rejected.every((result) => result.reason.code === 'SEATS_UNAVAILABLE'),
+          `round ${round}: competing bookings must fail because the seat is unavailable`,
+        )
+
+        const [[allocation]] = await pool.execute(
+          `SELECT COUNT(*) AS count
+           FROM booking_seats
+           WHERE seat_id = ? AND allocation_status IN ('HELD', 'CONFIRMED')`,
+          [stressSeat.insertId],
+        )
+
+        assert.equal(Number(allocation.count), 1, `round ${round}: only one active allocation is allowed`)
+
+        fixture.bookingIds[`stress${round}`] = successful[0].value.bookingId
+      }
+
       // A failure after writes have started must roll back booking, passenger,
       // payment, allocation and inventory changes in the real database.
       const [rollbackSeat] = await pool.execute(
