@@ -14,5 +14,6 @@ coverage/
 
 # Logs and local files
 *.log
+backend/logs/availability*.jsonl
 .DS_Store
 .vscode/
