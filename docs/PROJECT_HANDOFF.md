@@ -101,3 +101,22 @@ MySQL test is **BLOCKED before connection** because
 contains cancellation, rollback, concurrent duplicate-cancel, availability,
 and seat-reallocation checks, but those assertions are not yet locally verified.
 Use the associated pull request's MySQL CI result as database-backed evidence.
+
+## Issue #23 — RRS-SR-003 secure network communication (2026-11-11)
+
+The Issue #23 implementation validates production `PUBLIC_API_URL` and
+`CLIENT_ORIGIN` as HTTPS URLs, requires a `TRUST_PROXY` value from 1 through
+10, rejects requests Express does not identify as secure, and uses
+secure session cookies, credentialed exact-origin CORS, and HSTS. Production
+frontend builds reject unsafe API base URLs, and a production frontend opened
+over HTTP refuses to render. Development remains HTTP-compatible. Deployment
+configuration and reverse-proxy requirements are documented in
+`docs/secure-network-communication.md`.
+
+Local verification on 2026-11-11: backend suite **PASS (168/168)**; frontend
+transport tests **PASS (11/11)**; frontend ESLint **PASS**; frontend production
+build **PASS**; changed backend syntax checks and `git diff --check` **PASS**.
+These are application tests, not a live TLS deployment probe. No production
+host/reverse proxy is configured in this repository, so certificate validity,
+edge header sanitization, and public HTTPS behavior remain deployment checks.
+See `docs/TEST_EVIDENCE.md` for the exact commands and scope.

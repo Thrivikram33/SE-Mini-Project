@@ -1,6 +1,6 @@
-# Test evidence — Issue #10 (RRS-F-010)
+# Test evidence — Railway Reservation System
 
-Last updated: 2026-11-06. Unit/mock, local MySQL, GitHub Actions, and browser evidence are reported separately.
+Last updated: 2026-11-11. Unit/mock, local MySQL, GitHub Actions, and browser evidence are reported separately.
 
 | Area | Command / evidence | Result |
 |---|---|---|
@@ -75,6 +75,22 @@ The local MySQL limitation is not represented as a passing database or end-to-en
 | Database migration | Schema inspection | **NOT REQUIRED:** existing cancellation and generated active-seat columns are sufficient. No migration was added or applied. |
 | Refund processing | Code and schema inspection | **OUT OF SCOPE / POLICY UNDEFINED:** no refund amount or payment reversal is calculated. Existing payment history is retained and no refund is presented as completed. |
 | GitHub Actions | Associated Issue #16 pull request checks | Review the actual workflow result there; local test results do not substitute for MySQL CI. |
+
+## Issue #23 — RRS-SR-003 secure network communication (2026-11-11)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Backend regression and transport tests | `cd backend; npm test` | **PASS: 168 tests, 0 failures, 0 skipped.** Includes production URL/proxy validation and HTTP rejection versus trusted forwarded HTTPS. |
+| Frontend transport tests | `cd frontend; npm test` | **PASS: 11 tests, 0 failures, 0 skipped.** Covers HTTPS API base validation, malformed/protocol-relative path rejection, and the production HTTP render guard. |
+| Frontend lint | `cd frontend; npm run lint` | **PASS.** |
+| Frontend production build | `cd frontend; npm run build` | **PASS** with Vite 8.3.4. |
+| Insecure production API config | Run frontend build with `VITE_API_BASE_URL=http://insecure.example.test` | **PASS:** Vite configuration rejected the build with the expected HTTPS requirement. |
+| Backend syntax and diff whitespace | `node --check src/server.js; node --check src/config/transportSecurity.js; node --check test/transport-security.test.js; git diff --check` | **PASS.** |
+| Backend production dependency audit | `cd backend; npm audit --omit=dev` | **PASS: 0 vulnerabilities.** |
+| Production deployment probe | Repository inspection | **NOT RUN:** no deployed edge, hostname, or TLS certificate is configured here. Application tests do not prove that a hosting provider is serving TLS correctly. |
+| Database tests | Scope review | **NOT APPLICABLE:** Issue #23 changes transport configuration only; it adds no schema changes or DB-backed behavior. |
+
+---
 
 ## Issue #18 — RRS-F-015 administrator management (2026-11-09)
 
