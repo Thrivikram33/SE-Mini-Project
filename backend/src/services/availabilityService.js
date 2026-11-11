@@ -1,12 +1,12 @@
 'use strict'
 
 function isWithinMaintenance(timestamp, windows = []) {
-  const instant = new Date(timestamp).getTime()
+  const instant = Date.parse(timestamp)
   if (!Number.isFinite(instant)) return false
 
   return windows.some((window) => {
-    const start = new Date(window.start).getTime()
-    const end = new Date(window.end).getTime()
+    const start = Date.parse(window.start)
+    const end = Date.parse(window.end)
     return Number.isFinite(start) && Number.isFinite(end) &&
       end > start && instant >= start && instant < end
   })
@@ -20,6 +20,7 @@ function summarizeAvailability(observations, options = {}) {
   const eligible = observations.filter((observation) =>
     observation &&
     typeof observation.timestamp === 'string' &&
+    Number.isFinite(Date.parse(observation.timestamp)) &&
     typeof observation.success === 'boolean' &&
     !isWithinMaintenance(observation.timestamp, windows),
   )
