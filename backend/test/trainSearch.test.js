@@ -182,6 +182,27 @@ test('binds SQL-injection-like station input in both database queries', async ()
   assert.ok(calls[1].params.includes(injection))
 })
 
+test('keeps common SQL injection payloads in bound values and ignores requested sort identifiers', async () => {
+  const payloads = [
+    "' OR '1'='1",
+    '1 OR 1=1',
+    "'; DROP TABLE users; --",
+    "' UNION SELECT 1 --",
+    "Alpha'/*comment*/OR/**/1=1--",
+    'Alpha%27%20OR%201%3D1',
+  ]
+  for (const payload of payloads) {
+    const calls = mockDatabase([], [])
+    await searchTrains({ ...query(), source: payload, sort: 'train_name; DROP TABLE users' })
+    assert.equal(calls.length, 2)
+    for (const call of calls) assert.equal(call.sql.includes(payload), false)
+    assert.equal(calls[0].params[0], payload)
+    assert.ok(calls[1].params.includes(payload))
+    assert.match(calls[1].sql, /ORDER BY source_stop\.departure_time, t\.train_number, coach\.class_type$/)
+    assert.equal(calls[1].sql.includes('train_name; DROP TABLE users'), false)
+  }
+})
+
 test('calculates overnight duration using the requested stops and day offsets', async () => {
   mockDatabase([searchRow()])
   const [train] = await searchTrains(query())
