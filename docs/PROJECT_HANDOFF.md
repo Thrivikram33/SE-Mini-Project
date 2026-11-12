@@ -120,3 +120,11 @@ These are application tests, not a live TLS deployment probe. No production
 host/reverse proxy is configured in this repository, so certificate validity,
 edge header sanitization, and public HTTPS behavior remain deployment checks.
 See `docs/TEST_EVIDENCE.md` for the exact commands and scope.
+
+## Issue #24 - RRS-SR-004 input validation and sanitization (2026-11-12)
+
+Issue #24 is open and assigned to `darthham`. Its acceptance criteria are: invalid or malicious inputs are handled safely; input handling prevents the tested injection cases. The implementation shares Unicode-aware person-name validation with registration, returns safe parser/size/encoding errors, avoids logging error message contents, and adds SQL-binding and React escaping regression coverage. Existing parameterized SQL, admin allowlists/fixed ordering, passenger validation, and React text rendering were reviewed and reused. No migration or dependency was added. Details and exact commands are in `docs/input-validation-security.md` and `docs/TEST_EVIDENCE.md`.
+
+Local verification: backend unit/API suite **PASS (174/174)**; train-search injection suite **PASS (25/25)**; frontend tests **PASS (12/12)**; frontend lint and production build **PASS**; production dependency audits **PASS (0 findings)**. Local MySQL integration is **BLOCKED before connection** because dedicated `RRS_MYSQL_TEST_*` credentials are absent. GitHub Actions run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) **PASSED** repository checks, the backend suite and isolated MySQL integration, and the frontend production build on code commit `78fe96b`. The documentation-only commit will trigger another run.
+
+Branch: `feature/issue-24-input-validation-sanitization`. Pull request: [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58), open against `main`, awaiting review.

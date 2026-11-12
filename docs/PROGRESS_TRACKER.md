@@ -113,3 +113,20 @@ Pull Request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44) (`f
 ### Commit references
 
 Original PR commits: `baa5e3a` (service), `5dcbba1` (tests), `302e94c` (docs), `bc9dec5` (integration merge). Continuation commits: `8963a04` (preserve passenger-seat mapping), `0f2433c` (MySQL lifecycle tests and FK migration), `282421d` (body-parser security update), `036c3c6` (initial evidence update), and `6433806` (passing MySQL CI evidence). The latest pushed commit passed backend, MySQL integration/concurrency, repository, and frontend CI jobs.
+
+## Issue #24 - RRS-SR-004: Input validation and sanitization (2026-11-12)
+
+GitHub Issue: [#24](https://github.com/Thrivikram33/SE-Mini-Project/issues/24) (open)
+Branch: `feature/issue-24-input-validation-sanitization`
+Pull Request: [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58) (open; review required)
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Backend field validation | VERIFIED LOCALLY | Shared Unicode-aware person-name validation; existing passenger, booking, fare, search, seat, and admin service validation retained. |
+| Malformed request handling | VERIFIED LOCALLY | JSON parser errors return 400, oversized bodies 413, unsupported encodings 415; unexpected errors do not expose details in responses or logs. |
+| SQL injection protection | VERIFIED LOCALLY | 25 train-search tests confirm common injection strings stay bound and sort identifiers cannot alter SQL. Existing repository and booking tests cover parameter binding and transactions. |
+| Script injection / XSS | VERIFIED LOCALLY | React text escaping tests pass for script, event-handler, SVG, encoded, malformed, and JavaScript URL text; source review found no unsafe HTML sinks or user-controlled navigation URLs. |
+| Regression checks | VERIFIED LOCALLY | Backend 174/174; frontend 12/12, lint, and production build pass. |
+| Database integration | VERIFIED IN CI; NOT LOCALLY | Local `npm run test:mysql` is blocked before connection because dedicated test-only MySQL variables are absent; no local database was changed. CI run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) passed the isolated MySQL job on code commit `78fe96b`; the documentation push triggers another run. |
+| Dependencies and schema | VERIFIED | No dependency, lockfile, or migration changes. Production dependency audits report zero vulnerabilities. |
+| Release | IN PROGRESS | Three implementation commits are pushed. The handoff/evidence commit remains before final push and final CI review. |
