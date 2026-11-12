@@ -1,4 +1,5 @@
 ﻿const VALID_GENDERS = new Set(['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'])
+const { isValidPersonName } = require('./personNameValidator')
 
 function validatePassengerDetails(passenger) {
   const errors = {}
@@ -11,7 +12,7 @@ function validatePassengerDetails(passenger) {
     errors.name = 'Passenger name is required.'
   } else if (passenger.name.trim().length > 120) {
     errors.name = 'Passenger name must be 120 characters or fewer.'
-  } else if (!/^[\p{L}\p{M}]+(?:[ .'-][\p{L}\p{M}]+)*$/u.test(passenger.name.trim())) {
+  } else if (!isValidPersonName(passenger.name, 120)) {
     errors.name = 'Enter a valid passenger name.'
   }
 

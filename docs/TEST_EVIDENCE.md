@@ -106,3 +106,17 @@ The local MySQL limitation is not represented as a passing database or end-to-en
 | Frontend component tests | `frontend/package.json` scripts | **NOT AVAILABLE:** no frontend test runner/script is configured. The new admin UI is checked by the existing lint and production build. |
 | Database migration | Schema inspection | **NOT REQUIRED:** used fields and audit logging exist in migrations 001–004. No migration was added or executed. |
 | GitHub Actions | [Run #42583012006](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/42583012006), test commit `13bad56` | **PASS:** backend tests, isolated MySQL admin lifecycle/search integration, repository checks, and frontend production build. A final run is still needed after the documentation commit. |
+
+## Issue #24 - RRS-SR-004 input validation and sanitization (2026-11-12)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Backend regression suite | `cd backend; npm.cmd test -- --test-reporter=spec` | **PASS: 174 tests, 0 failures.** Includes auth, passenger validation, booking, cancellation, seat release, admin validation, request-error middleware, and train search. |
+| SQL injection cases | `cd backend; node --test test/trainSearch.test.js` | **PASS: 25 tests.** Tautology, UNION, comment, encoded, and destructive-looking payloads remained bound values; injected sort input did not change SQL. |
+| API parser errors | `cd backend; npm.cmd test -- --test-name-pattern="malformed JSON|oversized JSON|unexpected error messages"` | **PASS:** malformed JSON 400, oversized JSON 413, and secret-free unexpected error handling verified. |
+| Frontend rendering | `cd frontend; npm.cmd test` | **PASS: 12 tests.** React text output escaped script, event-handler, SVG, encoded, malformed markup, and JavaScript URL text. |
+| Frontend lint/build | `cd frontend; npm.cmd run lint`; `cd frontend; npm.cmd run build` | **PASS.** Vite 8.3.4 production build completed. |
+| Production dependencies | `npm.cmd audit --omit=dev` in `backend/` and `frontend/` | **PASS: 0 production vulnerabilities** in each project. Frontend `npm ci` reported four moderate findings in the full dependency tree; dependencies were not changed. |
+| MySQL integration | `cd backend; npm.cmd run test:mysql` | **BLOCKED before connection:** missing `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, `RRS_MYSQL_TEST_PASSWORD`. The guarded integration test refused to connect; no DB was changed. |
+| CI | PR [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58), initial run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) | **PASS on code commit `78fe96b`:** repository checks, backend tests, isolated MySQL integration, and frontend production build. The documentation push triggers a follow-up run; inspect PR checks for final state. |
+| Database/dependencies | Diff review | **NO CHANGE:** no schema migration, runtime dependency, or lockfile change. |

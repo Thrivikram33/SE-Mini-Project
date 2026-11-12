@@ -109,7 +109,7 @@ export default function RegistrationPage() {
               value={form.name}
               onChange={handleChange}
               minLength={2}
-              maxLength={120}
+              maxLength={100}
               autoComplete="name"
               className={inputClass}
               placeholder="Enter your full name"

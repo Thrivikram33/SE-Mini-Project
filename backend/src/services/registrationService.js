@@ -1,5 +1,6 @@
 const pool = require('../config/db')
 const { hashPassword } = require('../utils/password')
+const { isValidPersonName } = require('../validators/personNameValidator')
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MOBILE_REGEX = /^[+0-9()\-\s]+$/
@@ -22,8 +23,8 @@ async function registerPassenger({ name, email, mobile, password }) {
   const normalizedEmail = email.trim().toLowerCase()
   const normalizedMobile = mobile.trim()
 
-  if (normalizedName.length < 2 || normalizedName.length > 100) {
-    const error = new Error('Name must contain 2 to 100 characters.')
+  if (!isValidPersonName(normalizedName, 100, 2)) {
+    const error = new Error('Name must contain 2 to 100 valid characters.')
     error.statusCode = 400
     throw error
   }
