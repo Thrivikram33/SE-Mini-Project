@@ -70,6 +70,26 @@ test('rejects a missing name', async () => {
   )
 })
 
+test('rejects markup and control characters in account names before database writes', async () => {
+  for (const name of ['<script>alert(1)</script>', 'Asha\u0000Rao', 'Asha_ Rao', 'A'.repeat(101)]) {
+    lastInsert = undefined
+    await assert.rejects(
+      registerPassenger({ name, email: 'passenger@example.com', mobile: '9876543210', password: 'StrongPass123' }),
+      { statusCode: 400 },
+    )
+    assert.equal(lastInsert, undefined)
+  }
+})
+
+test('preserves international account names and trims surrounding whitespace', async () => {
+  lastInsert = undefined
+  const passenger = await registerPassenger({
+    name: '  Jos\u00e9 Garc\u00eda  ', email: 'jose@example.com', mobile: '9876543210', password: 'StrongPass123',
+  })
+  assert.equal(passenger.name, 'Jos\u00e9 Garc\u00eda')
+  assert.equal(lastInsert.params[0], 'Jos\u00e9 Garc\u00eda')
+})
+
 test('rejects an invalid email address', async () => {
   await assert.rejects(
     registerPassenger({
