@@ -14,6 +14,7 @@ const bookingRoutes = require('./routes/bookingRoutes')
 const adminRoutes = require('./routes/adminRoutes')
 const cors = require('cors')
 const { getTransportSecurityConfig, requireSecureTransport } = require('./config/transportSecurity')
+const { requestErrorHandler } = require('./middleware/requestErrorHandler')
 const app = express()
 const PORT = Number(process.env.PORT) || 5000
 const transportSecurity = getTransportSecurityConfig()
@@ -84,26 +85,7 @@ app.use((_req, res) => {
   })
 })
 
-app.use((err, _req, res, _next) => {
-  if (Number.isInteger(err.statusCode) && err.statusCode >= 400 && err.statusCode < 500) {
-    const errorCode = err.statusCode === 400
-      ? 'INVALID_REQUEST'
-      : err.statusCode === 404
-        ? 'NOT_FOUND'
-        : 'REQUEST_FAILED'
-
-    return res.status(err.statusCode).json({
-      error: errorCode,
-      message: err.message,
-    })
-  }
-
-  console.error('Request processing failed:', err.message)
-  return res.status(500).json({
-    error: 'INTERNAL_SERVER_ERROR',
-    message: 'An unexpected server error occurred.',
-  })
-})
+app.use(requestErrorHandler)
 
 if (require.main === module) {
   app.listen(PORT, () => {
