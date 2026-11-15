@@ -51,7 +51,7 @@ test('registers a passenger and returns a safe passenger object', async () => {
   assert.equal(passenger.role, 'PASSENGER')
   assert.equal(Object.hasOwn(passenger, 'password'), false)
   assert.equal(Object.hasOwn(passenger, 'password_hash'), false)
-  assert.match(lastInsert.sql, /INSERT INTO users \(name, email, mobile, password_hash\)/)
+  assert.match(lastInsert.sql, /INSERT INTO users \(full_name, email, mobile, password_hash\)/)
   assert.equal(lastInsert.params[0], 'Test Passenger')
   assert.equal(lastInsert.params[1], 'passenger@example.com')
   assert.equal(lastInsert.params[2], '9876543210')
@@ -180,7 +180,7 @@ test('prevents public registration from granting administrator privileges', asyn
   assert.equal(passenger.role, 'PASSENGER')
   assert.match(
     lastInsert.sql,
-    /INSERT INTO users \(name, email, mobile, password_hash\)/,
+    /INSERT INTO users \(full_name, email, mobile, password_hash\)/,
   )
   assert.equal(lastInsert.params.length, 4)
 })

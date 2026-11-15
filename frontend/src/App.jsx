@@ -1,4 +1,12 @@
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import SeatSelectionPage from './SeatSelectionPage'
 import TrainSearchPage from './TrainSearchPage'
 import LoginPage from './LoginPage'
@@ -160,14 +168,67 @@ function PlaceholderPage({ title, description }) {
   )
 }
 
+
 function AppLayout() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [user, setUser] = useState(null)
+
+
+
+  useEffect(() => {
+  let active = true
+
+  async function checkSession() {
+    try {
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include',
+      })
+
+      if (!active) return
+
+      if (!response.ok) {
+     
+        return
+      }
+
+      const result = await response.json()
+
+      if (active) {
+        setUser(result.user || null)
+      }
+    } catch {
+      if (active) {
+        setUser(null)
+      }
+    }
+  }
+
+  checkSession()
+
+  return () => {
+    active = false
+  }
+}, [location.pathname])
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } finally {
+      setUser(null)
+      navigate('/login', { replace: true })
+    }
+  }
+
+  const isAdmin = user?.role === 'ADMIN'
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <nav
-          className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8"
-          aria-label="Main navigation"
-        >
+        <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-lg font-bold text-white">
               R
@@ -182,28 +243,64 @@ function AppLayout() {
             </span>
           </Link>
 
-          <div className="flex flex-wrap items-center gap-5 text-sm font-medium text-slate-600">
-            <Link to="/" className="hover:text-sky-700">Home</Link>
-            <Link to="/trains" className="hover:text-sky-700">Find trains</Link>
-            <Link to="/bookings" className="hover:text-sky-700">My bookings</Link>
-            <Link to="/admin" className="hover:text-sky-700">Admin</Link>
-            <Link to="/seats" className="hover:text-sky-700">Select seats</Link>
-            <Link
-              to="/login"
-              className="rounded-lg bg-slate-900 px-4 py-2.5 text-white hover:bg-slate-700"
-            >
-              Sign in
-            </Link>
+          <div className="flex flex-wrap items-center gap-4 text-sm font-medium">
+            {user ? (
+              <>
+                {isAdmin ? (
+                  <>
+                    <Link to="/admin" className="text-slate-700 hover:text-sky-700">
+                      Operations Dashboard
+                    </Link>
+                    <Link to="/trains" className="text-slate-700 hover:text-sky-700">
+                      Train Search
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/trains" className="text-slate-700 hover:text-sky-700">
+                      Find Trains
+                    </Link>
+                    <Link to="/bookings" className="text-slate-700 hover:text-sky-700">
+                      My Bookings
+                    </Link>
+                  </>
+                )}
+
+                <div className="rounded-lg bg-slate-100 px-3 py-2">
+                  <p className="font-semibold text-slate-900">{user.name}</p>
+                  <span className={`text-xs font-bold ${isAdmin ? 'text-blue-700' : 'text-emerald-700'}`}>
+                    {user.role}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-lg bg-slate-900 px-4 py-2.5 text-white hover:bg-slate-700"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/" className="text-slate-700 hover:text-sky-700">
+                  Home
+                </Link>
+                <Link to="/trains" className="text-slate-700 hover:text-sky-700">
+                  Find Trains
+                </Link>
+                <Link to="/login" className="rounded-lg bg-slate-900 px-4 py-2.5 text-white">
+                  Sign In
+                </Link>
+              </>
+            )}
           </div>
         </nav>
       </header>
 
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route
-          path="/trains"
-          element={<TrainSearchPage />}
-        />
+        <Route path="/trains" element={<TrainSearchPage />} />
         <Route path="/bookings" element={<BookingHistoryPage />} />
         <Route path="/admin" element={<AdminManagementPage />} />
         <Route path="/login" element={<LoginPage />} />
@@ -230,6 +327,7 @@ function AppLayout() {
     </div>
   )
 }
+
 
 function App() {
   return (

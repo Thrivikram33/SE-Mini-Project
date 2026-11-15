@@ -34,12 +34,12 @@ router.post(
 
     try {
       const [users] = await pool.execute(
-        `SELECT user_id, name AS name, email, password_hash, role
-         FROM users
-         WHERE email = ?
-         LIMIT 1`,
-        [email],
-      )
+  `SELECT user_id, full_name AS name, email, password_hash, role
+   FROM users
+   WHERE email = ?
+   LIMIT 1`,
+  [email],
+)
 
       const user = users[0]
 
@@ -98,7 +98,18 @@ router.post(
     }
   },
 )
+// Return the currently authenticated user.
+router.get('/me', (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({
+      message: 'Authentication required.',
+    })
+  }
 
+  return res.status(200).json({
+    user: req.session.user,
+  })
+})
 // Log out and invalidate the current session.
 router.post('/logout', (req, res) => {
   if (!req.session) {

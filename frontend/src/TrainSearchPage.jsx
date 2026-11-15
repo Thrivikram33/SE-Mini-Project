@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -11,10 +12,145 @@ function localDateString(date) {
 function formatDuration(minutes) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
+function StationInput({ label, value, onChange, onSelect, excludeCode }) {
+  const [suggestions, setSuggestions] = useState([])
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+
+  const timerRef = useRef(null)
+  const requestRef = useRef(null)
+
+  useEffect(() => () => {
+    clearTimeout(timerRef.current)
+    requestRef.current?.abort()
+  }, [])
+
+  async function searchStations(query) {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
+
+    try {
+      const response = await fetch(
+        `/api/trains/stations/search?q=${encodeURIComponent(query)}`,
+        { signal: controller.signal },
+      )
+      if (!response.ok) throw new Error('Station search failed')
+      const body = await response.json()
+      if (requestRef.current === controller) {
+        setSuggestions(
+          (body.stations || []).filter(station => station.code !== excludeCode),
+        )
+        setActive(0)
+        setOpen(true)
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') setSuggestions([])
+    }
+  }
+
+  function handleChange(event) {
+    const query = event.target.value
+    onChange(query)
+ 
+    onSelect(null)
+    setSuggestions([])
+    setOpen(false)
+    clearTimeout(timerRef.current)
+
+    if (query.trim().length >= 1) {
+      timerRef.current = setTimeout(() => searchStations(query.trim()), 180)
+    }
+  }
+
+  function choose(station) {
+   
+    onChange(`${station.name} (${station.code})`)
+    onSelect(station)
+    setOpen(false)
+    setSuggestions([])
+  }
+
+  function handleKeyDown(event) {
+    if (!open || suggestions.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActive(index => (index + 1) % suggestions.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActive(index => (index - 1 + suggestions.length) % suggestions.length)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      choose(suggestions[active])
+    } else if (event.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <label className="text-sm font-medium text-slate-700">
+        {label}
+        <input
+          required
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => {
+            if (value.trim()) searchStations(value.trim())
+          }}
+          placeholder="Type station name or code"
+          className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
+        />
+      </label>
+
+      {open && suggestions.length > 0 && (
+        <ul
+          role="listbox"
+          className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+        >
+          {suggestions.map((station, index) => (
+            <li
+              key={station.code}
+              role="option"
+              aria-selected={active === index}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => choose(station)}
+              className={`cursor-pointer px-4 py-3 ${
+                active === index ? 'bg-sky-50' : 'hover:bg-slate-50'
+              }`}
+            >
+              <span className="font-semibold text-slate-900">{station.name}</span>
+              <span className="ml-2 text-sm font-medium text-sky-700">
+                {station.code}
+              </span>
+              <span className="block text-xs text-slate-500">
+                {station.city}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && value.trim() && suggestions.length === 0 && (
+        <p className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500 shadow">
+          No matching stations found.
+        </p>
+      )}
+    </div>
+  )
+}
 
 export default function TrainSearchPage() {
   const [source, setSource] = useState('')
   const [destination, setDestination] = useState('')
+  const [sourceStation, setSourceStation] = useState(null)
+  const [destinationStation, setDestinationStation] = useState(null)
   const [date, setDate] = useState('')
   const [trains, setTrains] = useState(null)
   const [error, setError] = useState('')
@@ -28,9 +164,14 @@ export default function TrainSearchPage() {
 
   async function handleSearch(event) {
     event.preventDefault()
-    const from = source.trim()
-    const to = destination.trim()
-    if (from.toLowerCase() === to.toLowerCase()) {
+
+    if (!sourceStation || !destinationStation) {
+      setError('Please select both stations from the suggestions.')
+      setTrains(null)
+      return
+    }
+
+    if (sourceStation.code === destinationStation.code) {
       setError('Source and destination must be different stations.')
       setTrains(null)
       return
@@ -43,7 +184,12 @@ export default function TrainSearchPage() {
     setError('')
     setTrains(null)
 
-    const params = new URLSearchParams({ source: from, destination: to, date })
+    const params = new URLSearchParams({
+      source: sourceStation.code,
+      destination: destinationStation.code,
+      date,
+    })
+
     try {
       const response = await fetch(`/api/trains/search?${params}`, {
         signal: controller.signal,
@@ -74,28 +220,28 @@ export default function TrainSearchPage() {
         </h1>
 
         <form className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" onSubmit={handleSearch}>
-          <label className="text-sm font-medium text-slate-700">
-            From station
-            <input
-              required
-              autoComplete="off"
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              placeholder="Station name or code"
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            To station
-            <input
-              required
-              autoComplete="off"
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-              placeholder="Station name or code"
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
-            />
-          </label>
+          <StationInput
+            label="From station"
+            value={source}
+            onChange={value => {
+              setSource(value)
+              setTrains(null)
+            }}
+            onSelect={setSourceStation}
+            excludeCode={destinationStation?.code}
+          />
+
+          <StationInput
+            label="To station"
+            value={destination}
+            onChange={value => {
+              setDestination(value)
+              setTrains(null)
+            }}
+            onSelect={setDestinationStation}
+            excludeCode={sourceStation?.code}
+          />
+
           <label className="text-sm font-medium text-slate-700">
             Journey date
             <input
@@ -103,17 +249,18 @@ export default function TrainSearchPage() {
               type="date"
               min={today}
               value={date}
-              onChange={(event) => setDate(event.target.value)}
+              onChange={event => setDate(event.target.value)}
               className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-base"
             />
           </label>
+
           <div className="flex items-end">
             <button
               disabled={loading}
               type="submit"
               className="w-full rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white hover:bg-slate-700 disabled:cursor-wait disabled:opacity-60"
             >
-              {loading ? 'Searching…' : 'Search trains'}
+              {loading ? 'Searching...' : 'Search trains'}
             </button>
           </div>
         </form>
@@ -126,10 +273,11 @@ export default function TrainSearchPage() {
       </section>
 
       {loading && (
-        <p className="mt-6 text-sm text-slate-600" role="status" aria-live="polite">
-          Searching schedules…
+        <p className="mt-6 text-sm text-slate-600" role="status">
+          Searching schedules...
         </p>
       )}
+
       {trains !== null && (trains.length === 0 ? (
         <p className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600" role="status">
           No trains match this route and date.
@@ -139,7 +287,8 @@ export default function TrainSearchPage() {
           <h2 className="text-xl font-bold text-slate-900">
             {trains.length} matching option{trains.length === 1 ? '' : 's'}
           </h2>
-          {trains.map((train) => (
+
+          {trains.map(train => (
             <article
               key={`${train.scheduleId}-${train.classType}`}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
