@@ -27,6 +27,188 @@ function Field({ label, children }) {
 const inputClass = 'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900'
 const primaryButton = 'rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-wait disabled:opacity-60'
 
+function RouteStopsEditor({ value, onChange, stations }) {
+  const [queries, setQueries] = useState({})
+
+  const rows = value
+    .split('\n')
+    .filter(Boolean)
+    .map(line => {
+      const [stationCode = '', arrivalTime = '', departureTime = '', dayOffset = '0'] =
+        line.split(',').map(part => part.trim())
+
+      return { stationCode, arrivalTime, departureTime, dayOffset }
+    })
+
+  function updateRow(index, field, nextValue) {
+    const updated = [...rows]
+    updated[index] = { ...updated[index], [field]: nextValue }
+
+    onChange(updated.map(row =>
+      [row.stationCode, row.arrivalTime, row.departureTime, row.dayOffset].join(',')
+    ).join('\n'))
+  }
+
+  function addStop() {
+    onChange([...rows, {
+      stationCode: '',
+      arrivalTime: '',
+      departureTime: '',
+      dayOffset: '0',
+    }].map(row =>
+      [row.stationCode, row.arrivalTime, row.departureTime, row.dayOffset].join(',')
+    ).join('\n'))
+  }
+
+  function removeStop(index) {
+    const updated = rows.filter((_, i) => i !== index)
+    onChange(updated.map(row =>
+      [row.stationCode, row.arrivalTime, row.departureTime, row.dayOffset].join(',')
+    ).join('\n'))
+  }
+
+  function moveStop(index, direction) {
+    const target = index + direction
+    if (target < 0 || target >= rows.length) return
+
+    const updated = [...rows]
+    ;[updated[index], updated[target]] = [updated[target], updated[index]]
+
+    onChange(updated.map(row =>
+      [row.stationCode, row.arrivalTime, row.departureTime, row.dayOffset].join(',')
+    ).join('\n'))
+  }
+
+  return (
+    <div className="space-y-4">
+      {rows.map((row, index) => {
+        const query = queries[index] ?? ''
+        const selectedStation = stations.find(
+          station => station.code === row.stationCode,
+        )
+
+        const normalizedQuery = query.trim().toLowerCase()
+        const aliases = {
+          bangalore: 'bengaluru',
+          banglore: 'bengaluru',
+          mysore: 'mysuru',
+          madras: 'chennai',
+        }
+        const search = aliases[normalizedQuery] || normalizedQuery
+
+        const suggestions = normalizedQuery
+          ? stations.filter(station =>
+              `${station.name} ${station.code} ${station.city}`
+                .toLowerCase()
+                .includes(search),
+            ).slice(0, 8)
+          : []
+
+        return (
+          <div key={index} className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between">
+              <strong className="text-sm text-slate-700">
+                Stop {index + 1}
+              </strong>
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => moveStop(index, -1)}
+                  disabled={index === 0}
+                  className="rounded border px-2 py-1 text-sm disabled:opacity-30">
+                  ↑
+                </button>
+                <button type="button" onClick={() => moveStop(index, 1)}
+                  disabled={index === rows.length - 1}
+                  className="rounded border px-2 py-1 text-sm disabled:opacity-30">
+                  ↓
+                </button>
+                <button type="button" onClick={() => removeStop(index)}
+                  className="rounded border border-red-200 px-2 py-1 text-sm text-red-600">
+                  Remove
+                </button>
+              </div>
+            </div>
+
+            <div className="relative mt-3">
+              <label className="text-xs font-semibold text-slate-600">
+                Railway station
+                <input
+                  value={query || (selectedStation
+                    ? `${selectedStation.name} (${selectedStation.code})`
+                    : row.stationCode)}
+                  onChange={event => {
+                    setQueries({ ...queries, [index]: event.target.value })
+                    updateRow(index, 'stationCode', '')
+                  }}
+                  placeholder="Search station name or code"
+                  autoComplete="off"
+                  className={inputClass}
+                />
+              </label>
+
+              {suggestions.length > 0 && (
+                <div className="absolute z-40 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border bg-white shadow-xl">
+                  {suggestions.map(station => (
+                    <button
+                      type="button"
+                      key={station.code}
+                      onClick={() => {
+                        updateRow(index, 'stationCode', station.code)
+                        setQueries({ ...queries, [index]: '' })
+                      }}
+                      className="block w-full border-b px-3 py-2 text-left hover:bg-sky-50"
+                    >
+                      <span className="font-semibold">{station.name}</span>
+                      <span className="ml-2 text-sky-700">{station.code}</span>
+                      <span className="block text-xs text-slate-500">
+                        {station.city}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <label className="text-xs text-slate-600">
+                Arrival
+                <input type="time"
+                  value={row.arrivalTime}
+                  onChange={e => updateRow(index, 'arrivalTime', e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+
+              <label className="text-xs text-slate-600">
+                Departure
+                <input type="time"
+                  value={row.departureTime}
+                  onChange={e => updateRow(index, 'departureTime', e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+
+              <label className="text-xs text-slate-600">
+                Day offset
+                <input type="number" min="0"
+                  value={row.dayOffset}
+                  onChange={e => updateRow(index, 'dayOffset', e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+          </div>
+        )
+      })}
+
+      <button type="button" onClick={addStop}
+        className="w-full rounded-lg border-2 border-dashed border-sky-300 py-3 text-sm font-semibold text-sky-700 hover:bg-sky-50">
+        + Add route stop
+      </button>
+    </div>
+  )
+}
+
 export default function AdminManagementPage() {
   const navigate = useNavigate()
   const [stations, setStations] = useState([])
@@ -243,14 +425,34 @@ export default function AdminManagementPage() {
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-xl font-bold text-slate-900">Trains and routes</h2>
-          <p className="mt-1 text-sm text-slate-600">Route station codes must exist in the station catalog: {stations.map((station) => station.code).join(', ') || 'none configured'}. Route edits are disabled after a schedule is created; this protects existing trip data.</p>
+          <p className="mt-1 text-sm text-slate-600">
+  Add route stops using valid railway station codes. Search the station
+  catalog to find the correct station code. Route edits are disabled after
+  a schedule is created to protect existing trip data.
+</p>
           <form onSubmit={submitTrain} className="mt-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Train number"><input required maxLength={10} value={trainForm.trainNumber} onChange={(event) => setTrainForm({ ...trainForm, trainNumber: event.target.value })} className={inputClass} /></Field>
               <Field label="Train name"><input required maxLength={150} value={trainForm.trainName} onChange={(event) => setTrainForm({ ...trainForm, trainName: event.target.value })} className={inputClass} /></Field>
             </div>
-            <Field label="Ordered route stops"><textarea required rows={5} value={trainForm.routeText} onChange={(event) => setTrainForm({ ...trainForm, routeText: event.target.value })} placeholder={'BLR,,09:00,0\nMAS,17:30,,0'} className={`${inputClass} font-mono`} /><span className="mt-1 block text-xs text-slate-500">One per line: station code, arrival time, departure time, day offset. First stop needs departure; later stops need arrival.</span></Field>
-            {editingTrainId && <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={trainForm.active} onChange={(event) => setTrainForm({ ...trainForm, active: event.target.checked })} /> Train active in passenger search</label>}
+           <div>
+  <label className="block text-sm font-medium text-slate-700">
+    Ordered route stops
+  </label>
+
+  <RouteStopsEditor
+    value={trainForm.routeText}
+    onChange={routeText =>
+      setTrainForm(previous => ({ ...previous, routeText }))
+    }
+    stations={stations}
+  />
+
+  <p className="mt-2 text-xs text-slate-500">
+    Select stations in journey order. Set arrival, departure and day offset
+    for each stop.
+  </p>
+</div>
             <div className="flex flex-wrap gap-3"><button disabled={busy} className={primaryButton}>{busy ? 'Saving…' : editingTrainId ? 'Save train' : 'Create train'}</button>{editingTrainId && <button type="button" onClick={() => { setEditingTrainId(''); setTrainForm({ trainNumber: '', trainName: '', active: true, routeText: '' }) }} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold">Stop editing</button>}</div>
           </form>
           <div className="mt-6 space-y-3">

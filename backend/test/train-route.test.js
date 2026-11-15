@@ -6,10 +6,20 @@ const path = require('node:path')
 const routePath = path.resolve(__dirname, '../src/routes/trainRoutes.js')
 const originalLoad = Module._load
 let searchBehavior
+const fakePool = {
+  execute: async () => [[]],
+}
 Module._load = function (request, parent, isMain) {
-  if (parent && parent.filename === routePath && request === '../services/trainSearchService') {
-    return { searchTrains: (...args) => searchBehavior(...args) }
+  if (request === '../config/db' && parent?.filename === routePath) {
+    return fakePool
   }
+
+  if (request === '../services/trainSearchService' && parent?.filename === routePath) {
+    return {
+      searchTrains: (...args) => searchBehavior(...args),
+    }
+  }
+
   return originalLoad.call(this, request, parent, isMain)
 }
 let trainRouter
