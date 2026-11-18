@@ -147,13 +147,13 @@ test('uses ordered route stops and filters inactive trains and invalid schedules
   assert.match(sql, /destination_stop\.sequence_no > source_stop\.sequence_no/)
   assert.match(sql, /t\.active = TRUE/)
   assert.match(sql, /s\.status = 'SCHEDULED'/)
-  assert.match(sql, /s\.journey_date = DATE_SUB\(\?, INTERVAL source_stop\.day_offset DAY\)/)
+  assert.match(sql, /s\.journey_date =\s*DATE_SUB\(\?,\s*INTERVAL source_stop\.day_offset DAY\)/)
   assert.match(sql, /seat\.status = 'AVAILABLE'/)
   assert.match(sql, /allocation\.allocation_status IN \('HELD', 'CONFIRMED'\)/)
   assert.match(sql, /allocation\.booking_seat_id IS NULL/)
   assert.doesNotMatch(sql, /active_booking\.status/)
-  assert.match(sql, /COUNT\(DISTINCT CASE/)
-  assert.match(sql, /WHEN seat\.status = 'AVAILABLE' AND allocation\.booking_seat_id IS NULL/)
+  assert.match(sql, /COUNT\(\s*DISTINCT CASE/)
+  assert.match(sql, /WHEN seat\.status = 'AVAILABLE'\s+AND allocation\.booking_seat_id IS NULL/)
 })
 
 test('database schema allows at most one active allocation per seat', () => {
@@ -198,7 +198,7 @@ test('keeps common SQL injection payloads in bound values and ignores requested 
     for (const call of calls) assert.equal(call.sql.includes(payload), false)
     assert.equal(calls[0].params[0], payload)
     assert.ok(calls[1].params.includes(payload))
-    assert.match(calls[1].sql, /ORDER BY source_stop\.departure_time, t\.train_number, coach\.class_type$/)
+    assert.match(calls[1].sql, /ORDER BY\s+source_stop\.departure_time,\s*t\.train_number,\s*coach\.class_type$/)
     assert.equal(calls[1].sql.includes('train_name; DROP TABLE users'), false)
   }
 })
@@ -214,7 +214,7 @@ test('matches the requested source departure date when the train begins on an ea
   const [train] = await searchTrains(query())
   assert.equal(train.journeyDate, futureDate())
   assert.equal(train.arrivalDaysAfterDeparture, 1)
-  assert.match(calls[1].sql, /DATE_ADD\(s\.journey_date, INTERVAL source_stop\.day_offset DAY\)/)
+  assert.match(calls[1].sql, /DATE_ADD\(\s*s\.journey_date,\s*INTERVAL source_stop\.day_offset DAY\s*\)/)
 })
 
 test('drops invalid stop times and arrival-before-departure schedule rows', async () => {
@@ -232,7 +232,7 @@ test('keeps multiple results and the SQL specifies deterministic ordering', asyn
   ])
   const trains = await searchTrains(query())
   assert.equal(trains.length, 2)
-  assert.match(calls[1].sql, /ORDER BY source_stop\.departure_time, t\.train_number, coach\.class_type/)
+  assert.match(calls[1].sql, /ORDER BY\s+source_stop\.departure_time,\s*t\.train_number,\s*coach\.class_type/)
 })
 
 test('propagates database errors for safe handling by the HTTP error middleware', async () => {
