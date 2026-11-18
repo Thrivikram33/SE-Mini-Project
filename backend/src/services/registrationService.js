@@ -1,3 +1,4 @@
+
 const pool = require('../config/db')
 const { hashPassword } = require('../utils/password')
 const { isValidPersonName } = require('../validators/personNameValidator')
@@ -9,11 +10,11 @@ async function registerPassenger({ name, email, mobile, password }) {
   if (
     typeof name !== 'string' ||
     typeof email !== 'string' ||
-    typeof mobile !== 'string' ||
-    typeof password !== 'string'
+    typeof password !== 'string' ||
+    (mobile !== undefined && mobile !== null && typeof mobile !== 'string')
   ) {
     const error = new Error(
-      'Name, email, mobile number, and password are required.',
+      'Name, email, and password are required. Mobile number is optional.',
     )
     error.statusCode = 400
     throw error
@@ -21,7 +22,8 @@ async function registerPassenger({ name, email, mobile, password }) {
 
   const normalizedName = name.trim()
   const normalizedEmail = email.trim().toLowerCase()
-  const normalizedMobile = mobile.trim()
+  const normalizedMobile =
+    typeof mobile === 'string' ? mobile.trim() : ''
 
   if (!isValidPersonName(normalizedName, 100, 2)) {
     const error = new Error('Name must contain 2 to 100 valid characters.')
@@ -39,9 +41,8 @@ async function registerPassenger({ name, email, mobile, password }) {
   }
 
   if (
-    normalizedMobile.length < 1 ||
     normalizedMobile.length > 15 ||
-    !MOBILE_REGEX.test(normalizedMobile)
+    (normalizedMobile.length > 0 && !MOBILE_REGEX.test(normalizedMobile))
   ) {
     const error = new Error('Please provide a valid mobile number.')
     error.statusCode = 400
@@ -58,9 +59,14 @@ async function registerPassenger({ name, email, mobile, password }) {
 
   try {
     const [result] = await pool.execute(
-      `INSERT INTO users (full_name, email, mobile, password_hash)
+      `INSERT INTO users (name, email, mobile, password_hash)
        VALUES (?, ?, ?, ?)`,
-      [normalizedName, normalizedEmail, normalizedMobile, passwordHash],
+      [
+        normalizedName,
+        normalizedEmail,
+        normalizedMobile || null,
+        passwordHash,
+      ],
     )
 
     return {
