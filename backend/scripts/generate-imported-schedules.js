@@ -85,19 +85,24 @@ async function main() {
     const eligible = [];
     const skipped = [];
     for (const train of trains.values()) {
-      const first = train.stops[0];
-      const last = train.stops[train.stops.length - 1];
-      const departure = minutes(first && first.departureTime);
-      const arrival = minutes(last && last.arrivalTime);
-      if (train.stops.length < 2 || departure === null || arrival === null) {
+      if (train.stops.length < 2) {
         skipped.push(train.trainNumber);
         continue;
       }
-      const durationMinutes = (last.dayOffset - first.dayOffset) * 1440 + arrival - departure;
-      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      const departureStop = train.stops.find((stop) => minutes(stop.departureTime) !== null);
+      const departure = minutes(departureStop && departureStop.departureTime);
+      const arrivalStop = [...train.stops].reverse().find((stop) => {
+        const arrival = minutes(stop.arrivalTime);
+        if (arrival === null || !departureStop) return false;
+        const elapsed = (stop.dayOffset - departureStop.dayOffset) * 1440 + arrival - departure;
+        return elapsed > 0;
+      });
+      const arrival = minutes(arrivalStop && arrivalStop.arrivalTime);
+      if (!departureStop || !arrivalStop || arrival === null) {
         skipped.push(train.trainNumber);
         continue;
       }
+      const durationMinutes = (arrivalStop.dayOffset - departureStop.dayOffset) * 1440 + arrival - departure;
       eligible.push({ ...train, durationMinutes, fareAmount: demoFare(durationMinutes) });
     }
 
