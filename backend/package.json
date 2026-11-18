@@ -13,7 +13,8 @@
     "benchmark:train-search": "node scripts/benchmark-train-search.js",
     "benchmark:booking": "node scripts/benchmark-booking.js",
     "monitor:availability": "node scripts/monitor-availability.js",
-    "report:availability": "node scripts/monitor-availability.js --report"
+    "report:availability": "node scripts/monitor-availability.js --report",
+    "seed:imported-trains": "node scripts/generate-imported-schedules.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
