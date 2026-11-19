@@ -1,0 +1,125 @@
+{
+  "notice": "Fictional demonstration records for the Railway Reservation System project only. These are not official Indian Railways schedules, fares, or inventory.",
+  "stations": [
+    {
+      "code": "SBC",
+      "name": "Bengaluru City Junction",
+      "city": "Bengaluru"
+    },
+    {
+      "code": "MAS",
+      "name": "Chennai Central",
+      "city": "Chennai"
+    },
+    {
+      "code": "MYS",
+      "name": "Mysuru Junction",
+      "city": "Mysuru"
+    },
+    {
+      "code": "HYB",
+      "name": "Hyderabad Deccan",
+      "city": "Hyderabad"
+    }
+  ],
+  "trains": [
+    {
+      "number": "DEMO101",
+      "name": "Demo Express",
+      "source": "SBC",
+      "destination": "MAS",
+      "departure": "20:00:00",
+      "arrival": "06:00:00",
+      "arrivalDayOffset": 1,
+      "classes": [
+        {
+          "type": "SL",
+          "coach": "S1",
+          "fare": 450,
+          "seats": 10
+        },
+        {
+          "type": "3A",
+          "coach": "B1",
+          "fare": 950,
+          "seats": 10
+        },
+        {
+          "type": "2A",
+          "coach": "A1",
+          "fare": 1450,
+          "seats": 10
+        }
+      ]
+    },
+    {
+      "number": "DEMO102",
+      "name": "Mysuru City Demo",
+      "source": "SBC",
+      "destination": "MYS",
+      "departure": "07:15:00",
+      "arrival": "10:00:00",
+      "arrivalDayOffset": 0,
+      "classes": [
+        {
+          "type": "2S",
+          "coach": "D1",
+          "fare": 120,
+          "seats": 10
+        },
+        {
+          "type": "CC",
+          "coach": "C1",
+          "fare": 250,
+          "seats": 10
+        }
+      ]
+    },
+    {
+      "number": "DEMO103",
+      "name": "Chennai Return Demo",
+      "source": "MAS",
+      "destination": "SBC",
+      "departure": "21:00:00",
+      "arrival": "07:00:00",
+      "arrivalDayOffset": 1,
+      "classes": [
+        {
+          "type": "SL",
+          "coach": "S1",
+          "fare": 470,
+          "seats": 10
+        },
+        {
+          "type": "3A",
+          "coach": "B1",
+          "fare": 980,
+          "seats": 10
+        }
+      ]
+    },
+    {
+      "number": "DEMO104",
+      "name": "Deccan Demo Link",
+      "source": "SBC",
+      "destination": "HYB",
+      "departure": "18:00:00",
+      "arrival": "06:00:00",
+      "arrivalDayOffset": 1,
+      "classes": [
+        {
+          "type": "SL",
+          "coach": "S1",
+          "fare": 520,
+          "seats": 10
+        },
+        {
+          "type": "3A",
+          "coach": "B1",
+          "fare": 1100,
+          "seats": 10
+        }
+      ]
+    }
+  ]
+}
