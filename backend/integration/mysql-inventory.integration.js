@@ -399,21 +399,32 @@ async function cleanupFixture() {
   // Delete only records inserted by this test, in FK dependency order.
   const actorIds = [...new Set([ids.adminUserId, ids.apiUserId].filter(Boolean))]
   for (const actorId of actorIds) await pool.execute('DELETE FROM audit_logs WHERE actor_user_id = ?', [actorId])
-  const bookingIds = Object.values(fixture.bookingIds)
-  if (bookingIds.length) {
-    const placeholders = bookingIds.map(() => '?').join(', ')
-    for (const userId of [ids.userId, ids.apiUserId].filter(Boolean)) {
+  const bookingIds = [...new Set(Object.values(fixture.bookingIds).map(Number))]
+  const fixtureUserIds = [...new Set([ids.userId, ids.apiUserId].filter(Boolean))]
+  if (ids.scheduleId && fixtureUserIds.length) {
+    const userPlaceholders = fixtureUserIds.map(() => '?').join(', ')
+    const [scheduleBookings] = await pool.execute(
+      `SELECT booking_id AS bookingId FROM bookings
+       WHERE schedule_id = ? AND user_id IN (${userPlaceholders})`,
+      [ids.scheduleId, ...fixtureUserIds],
+    )
+    for (const booking of scheduleBookings) bookingIds.push(Number(booking.bookingId))
+  }
+  const uniqueBookingIds = [...new Set(bookingIds)]
+  if (uniqueBookingIds.length) {
+    const placeholders = uniqueBookingIds.map(() => '?').join(', ')
+    for (const userId of fixtureUserIds) {
       await pool.execute(
         `DELETE FROM audit_logs
          WHERE actor_user_id = ? AND entity_type = 'booking' AND entity_id IN (${placeholders})`,
-        [userId, ...bookingIds.map(String)],
+        [userId, ...uniqueBookingIds.map(String)],
       )
     }
-    await pool.execute(`DELETE FROM cancellations WHERE booking_id IN (${placeholders})`, bookingIds)
-    await pool.execute(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, bookingIds)
-    await pool.execute(`DELETE FROM booking_seats WHERE booking_id IN (${placeholders})`, bookingIds)
-    await pool.execute(`DELETE FROM passengers WHERE booking_id IN (${placeholders})`, bookingIds)
-    await pool.execute(`DELETE FROM bookings WHERE booking_id IN (${placeholders})`, bookingIds)
+    await pool.execute(`DELETE FROM cancellations WHERE booking_id IN (${placeholders})`, uniqueBookingIds)
+    await pool.execute(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, uniqueBookingIds)
+    await pool.execute(`DELETE FROM booking_seats WHERE booking_id IN (${placeholders})`, uniqueBookingIds)
+    await pool.execute(`DELETE FROM passengers WHERE booking_id IN (${placeholders})`, uniqueBookingIds)
+    await pool.execute(`DELETE FROM bookings WHERE booking_id IN (${placeholders})`, uniqueBookingIds)
   }
   if (ids.coachId) await pool.execute('DELETE FROM seats WHERE coach_id = ?', [ids.coachId])
   if (ids.scheduleId) await pool.execute('DELETE FROM fares WHERE schedule_id = ?', [ids.scheduleId])
