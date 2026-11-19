@@ -43,43 +43,43 @@ export default function SeatSelectionPage() {
     return data
   }
 
-  async function searchClasses() {
-    setError('')
-    setMessage('')
-    setClasses([])
-    setSeats([])
-    setSelectedSeats([])
-    setClassType('')
-    setCalculatedFare(null)
-
-    if (!/^[1-9]\d*$/.test(scheduleId)) {
-      setError('Enter a valid schedule ID.')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/schedules/${encodeURIComponent(scheduleId)}/classes`,
-      )
-      const data = await readJson(response)
-      setClasses(data.classes || [])
-      if (!data.classes?.length) {
-        setMessage('No travel classes are configured for this schedule.')
-      }
-    } catch (err) {
-      setError(err.message || 'Unable to load travel classes.')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   useEffect(() => {
-    if (!scheduleId) {
-      setError('No journey was selected. Return to train search and choose a train.')
+    if (!/^[1-9]\\d*$/.test(scheduleId)) {
+      setError('No valid journey was selected. Return to train search and choose a train.')
       return
     }
-    searchClasses()
+
+    const controller = new AbortController()
+    async function loadClasses() {
+      setError('')
+      setMessage('')
+      setClasses([])
+      setSeats([])
+      setSelectedSeats([])
+      setClassType('')
+      setCalculatedFare(null)
+      setLoading(true)
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/schedules/${encodeURIComponent(scheduleId)}/classes`,
+          { signal: controller.signal },
+        )
+        const data = await readJson(response)
+        setClasses(data.classes || [])
+        if (!data.classes?.length) {
+          setMessage('No travel classes are configured for this schedule.')
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message || 'Unable to load travel classes.')
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+    loadClasses()
+    return () => controller.abort()
   }, [scheduleId])
 
   useEffect(() => {
