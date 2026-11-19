@@ -1,14 +1,39 @@
 # Train search API
 
-The public train-search endpoint is:
+The public endpoint is:
 
 ```http
 GET /api/trains/search?source=MAS&destination=SBC&date=2026-12-01
 ```
 
-`source` and `destination` accept a station name or station code, ignoring case and surrounding whitespace. `date` must be a real `YYYY-MM-DD` calendar date. Past dates are rejected by UTC calendar day; the project has no configured maximum booking horizon. The same stored station is rejected even if one parameter uses its name and the other its code.
+`source` and `destination` accept a station name or code, ignoring case and
+surrounding whitespace. `date` must be a real `YYYY-MM-DD` calendar date; past
+dates are rejected. The same station cannot be supplied twice using different
+aliases.
 
-Successful searches return HTTP 200 with one item per configured class and fare:
+Search checks ordered route stops. A result requires the source and destination
+on the same active train, with the source sequence before the destination. The
+selected source must have a departure time and the selected destination must
+have an arrival time. Rows with an impossible elapsed time are omitted. There
+is no result-count limit in the search query; the station autocomplete's
+15-item limit applies only to suggestions.
+
+## Scheduled and route-only results
+
+For a configured scheduled journey, the API returns a row for each configured
+class, fare, and its seat count. The response includes that schedule's ID and a
+`bookable` boolean. A class is bookable only when the schedule, class, fare, and
+at least one available seat exist.
+
+Imported train data can include an ordered route and operating weekdays without
+an application-owned schedule. If that weekday matches the requested source
+departure date (adjusted for the source stop's `day_offset`), the route is
+returned with `scheduleId: null`, `classType: null`, `fare: null`, zero seats,
+and `bookable: false`. The frontend shows the route while preventing navigation
+to seat selection. An administrator must configure a real schedule, class fare,
+coach, and seat inventory before passengers can book it.
+
+Example scheduled result:
 
 ```json
 {
@@ -27,25 +52,41 @@ Successful searches return HTTP 200 with one item per configured class and fare:
       "arrivalDaysAfterDeparture": 1,
       "classType": "SL",
       "fare": { "amount": 250.00, "currency": "INR" },
-      "availableSeats": 4
+      "availableSeats": 4,
+      "bookable": true
     }
   ]
 }
 ```
 
-The example is illustrative; the API returns only records from the configured database. Empty searches return `{ "trains": [] }`. Invalid input returns HTTP 400 with the existing API format, for example `{ "error": "INVALID_REQUEST", "message": "Date must use YYYY-MM-DD format." }`. Unexpected database errors return the existing generic HTTP 500 response.
+The example is illustrative; the API returns only database records. Empty
+searches return `{ "trains": [] }`. Invalid input returns HTTP 400 using the
+existing API error format. Unexpected database errors return the existing
+generic HTTP 500 response.
 
-The requested date is the calendar date of departure at the selected source, accounting for that stop's configured `day_offset` relative to the schedule's origin date. Duration uses the selected source departure and destination arrival and includes the offsets. `arrivalDaysAfterDeparture` indicates whether arrival is on a later day.
+`journeyDate` is the requested source-departure date. For scheduled trains it is
+calculated from the schedule origin date plus the selected source stop's day
+offset. Duration uses the selected source departure and destination arrival,
+including their day offsets. `arrivalDaysAfterDeparture` reports how many days
+later the destination arrival occurs.
 
-### Availability calculation
+## Seat availability
 
-`availableSeats` is the number of distinct seats in coaches for the returned schedule and class that meet both conditions:
+`availableSeats` counts distinct seats for the schedule and class where the
+inventory status is `AVAILABLE` and there is no `HELD` or `CONFIRMED`
+allocation. Released allocations do not consume a seat. This is schedule-wide
+availability; the current schema does not track seat inventory by route segment.
+Booking, simulated payment failure, cancellation, and release continue through
+the existing transaction-based booking services.
 
-- The seat's inventory status is `AVAILABLE`.
-- The seat has no `HELD` or `CONFIRMED` allocation.
+## Database requirements
 
-`BLOCKED` seats, active allocations, and duplicate rows from joins do not increase the count. Only the allocation status determines whether an allocation consumes a seat: a `HELD` or `CONFIRMED` allocation remains unavailable even if its booking status is `PAYMENT_FAILED` or `CANCELLED`. This matches the database's unique active-seat constraint, which remains occupied until the allocation is changed to `RELEASED`. Payment-failure and cancellation flows must release allocations when the applicable booking rules require it. This repository currently contains no booking/payment/cancellation write service, so those lifecycle transitions are not implemented here. Inventory is stored for the whole schedule rather than individual route segments, so this API reports schedule-wide availability, not availability limited to the selected source/destination segment.
+Migrations `001` through `005` provide stations, trains, ordered route stops,
+schedules, fares, coaches, seats, and search indexes. Migration
+`006_train_running_days.sql` adds the weekday table used to find imported route
+data that has no application schedule. Apply it to the development database
+before importing trains or using route-only search. The migration is
+non-destructive and creates only `train_running_days`.
 
-Results require a configured coach class and fare so every returned option can continue to the existing class/seat-selection flow. The response includes `scheduleId` for that flow.
-
-No migration is needed: the initial schema already includes stations, ordered route stops, stop day offsets, schedules, fares, coaches, seats, and active seat allocations. Existing schedule, route, coach, and seat indexes support the search joins. In Vite development, `/api` requests are proxied to the backend on port 5000; production hosting must route `/api` to the backend on the same origin.
+Vite development proxies `/api` requests to the backend on port 5000. Production
+hosting must route `/api` to the backend on the same origin.

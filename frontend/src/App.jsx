@@ -289,7 +289,10 @@ function AppLayout() {
                 <Link to="/trains" className="text-slate-700 hover:text-sky-700">
                   Find Trains
                 </Link>
-                <Link to="/login" className="rounded-lg bg-slate-900 px-4 py-2.5 text-white">
+                <Link to="/register" className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-50">
+                  Sign Up
+                </Link>
+                <Link to="/login" className="rounded-lg bg-slate-900 px-4 py-2.5 font-semibold text-white hover:bg-slate-700" style={{ color: '#fff' }}>
                   Sign In
                 </Link>
               </>

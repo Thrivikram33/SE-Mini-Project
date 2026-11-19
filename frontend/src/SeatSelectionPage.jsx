@@ -17,6 +17,7 @@ export default function SeatSelectionPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const scheduleId = searchParams.get('scheduleId') || ''
+  const validScheduleId = /^[1-9]\d*$/.test(scheduleId)
   const [classes, setClasses] = useState([])
   const [classType, setClassType] = useState('')
   const [seats, setSeats] = useState([])
@@ -45,10 +46,7 @@ export default function SeatSelectionPage() {
 
 
   useEffect(() => {
-    if (!/^[1-9]\d*$/.test(scheduleId)) {
-      setError('No valid journey was selected. Return to train search and choose a train.')
-      return
-    }
+    if (!validScheduleId) return undefined
 
     const controller = new AbortController()
     async function loadClasses() {
@@ -80,7 +78,7 @@ export default function SeatSelectionPage() {
     }
     loadClasses()
     return () => controller.abort()
-  }, [scheduleId])
+  }, [scheduleId, validScheduleId])
 
   useEffect(() => {
     if (!classType || !scheduleId) {
@@ -246,9 +244,11 @@ export default function SeatSelectionPage() {
           </p>
         </div>
 
-        {error && (
+        {(error || !validScheduleId) && (
           <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {error}
+            {validScheduleId
+              ? error
+              : 'No valid journey was selected. Return to train search and choose a train.'}
           </p>
         )}
         {message && (

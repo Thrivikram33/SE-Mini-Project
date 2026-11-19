@@ -75,7 +75,7 @@ test('TC-SEARCH-01: returns schedules for a matching route and journey date', as
   const trains = await searchTrains(query())
   assert.equal(trains.length, 1)
   assert.equal(trains[0].scheduleId, 31)
-  assert.deepEqual(calls[1].params, [futureDate(), 'Alpha', 'Alpha', 'beta', 'beta'])
+  assert.deepEqual(calls[1].params, [futureDate(), futureDate(), futureDate(), 'Alpha', 'Alpha', 'beta', 'beta'])
 })
 
 test('TC-SEARCH-02: returns configured train, stop, class, fare, and availability fields', async () => {
@@ -96,6 +96,7 @@ test('TC-SEARCH-02: returns configured train, stop, class, fare, and availabilit
     classType: 'SL',
     fare: { amount: 250, currency: 'INR' },
     availableSeats: 4,
+    bookable: true,
   })
 })
 
@@ -140,20 +141,43 @@ test('rejects aliases that resolve to the same station ID', async () => {
   assert.equal(calls.length, 1)
 })
 
-test('uses ordered route stops and filters inactive trains and invalid schedules', async () => {
+test('uses ordered route stops and searches scheduled and running-day trains only', async () => {
   const calls = mockDatabase([])
   assert.deepEqual(await searchTrains(query()), [])
   const sql = calls[1].sql
   assert.match(sql, /destination_stop\.sequence_no > source_stop\.sequence_no/)
   assert.match(sql, /t\.active = TRUE/)
   assert.match(sql, /s\.status = 'SCHEDULED'/)
-  assert.match(sql, /s\.journey_date =\s*DATE_SUB\(\?,\s*INTERVAL source_stop\.day_offset DAY\)/)
+  assert.match(sql, /FROM trains t/)
+  assert.match(sql, /s\.journey_date = DATE_SUB\(\?, INTERVAL source_stop\.day_offset DAY\)/)
+  assert.match(sql, /running_day\.weekday = DAYOFWEEK\(/)
+  assert.match(sql, /s\.schedule_id IS NULL AND running_day\.train_id IS NOT NULL/)
+  assert.match(sql, /LEFT JOIN schedules s/)
   assert.match(sql, /seat\.status = 'AVAILABLE'/)
   assert.match(sql, /allocation\.allocation_status IN \('HELD', 'CONFIRMED'\)/)
   assert.match(sql, /allocation\.booking_seat_id IS NULL/)
   assert.doesNotMatch(sql, /active_booking\.status/)
   assert.match(sql, /COUNT\(\s*DISTINCT CASE/)
   assert.match(sql, /WHEN seat\.status = 'AVAILABLE'\s+AND allocation\.booking_seat_id IS NULL/)
+})
+
+test('returns route-only trains with no fabricated schedule, class, fare, or seat inventory', async () => {
+  mockDatabase([searchRow({
+    scheduleId: null,
+    journeyDate: futureDate(),
+    classType: null,
+    fare: null,
+    currency: null,
+    availableSeats: 0,
+  })])
+
+  const [train] = await searchTrains(query())
+  assert.equal(train.scheduleId, null)
+  assert.equal(train.classType, null)
+  assert.equal(train.fare, null)
+  assert.equal(train.availableSeats, 0)
+  assert.equal(train.bookable, false)
+  assert.equal(train.journeyDate, futureDate())
 })
 
 test('database schema allows at most one active allocation per seat', () => {
@@ -214,7 +238,7 @@ test('matches the requested source departure date when the train begins on an ea
   const [train] = await searchTrains(query())
   assert.equal(train.journeyDate, futureDate())
   assert.equal(train.arrivalDaysAfterDeparture, 1)
-  assert.match(calls[1].sql, /DATE_ADD\(\s*s\.journey_date,\s*INTERVAL source_stop\.day_offset DAY\s*\)/)
+  assert.match(calls[1].sql, /DATE_ADD\(s\.journey_date, INTERVAL source_stop\.day_offset DAY\)/)
 })
 
 test('drops invalid stop times and arrival-before-departure schedule rows', async () => {

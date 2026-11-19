@@ -1,92 +1,145 @@
+const fs = require('node:fs')
+const path = require('node:path')
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') })
 
-require('dotenv').config()
-
-const fs = require('fs')
-const path = require('path')
-const pool = require('../src/config/db')
+const { normalizeStation } = require('./stationDataset')
+const { assertDevelopmentTarget, verifyDevelopmentConnection } = require('./developmentDatabase')
 
 const DATASET_PATH = path.resolve(__dirname, '../../stations.json')
-const BATCH_SIZE = 250
+const BATCH_SIZE = 500
 
-function getCity(station) {
-  const address = String(station.address || '').trim()
-  const state = String(station.state || '').trim()
+function readDataset() {
+  const dataset = JSON.parse(fs.readFileSync(DATASET_PATH, 'utf8'))
+  if (!Array.isArray(dataset)) throw new Error('stations.json must contain a JSON array.')
 
-  if (!address) return state || station.name.trim()
+  const valid = []
+  const reasons = {}
+  const seenCodes = new Set()
+  let duplicateCodes = 0
+  let missingCity = 0
 
-  const parts = address.split(',').map(part => part.trim()).filter(Boolean)
-  const city = parts.length > 1 && state && parts.at(-1).toLowerCase() === state.toLowerCase()
-    ? parts.slice(0, -1).join(', ')
-    : parts[0]
+  for (const record of dataset) {
+    const result = normalizeStation(record)
+    if (result.reason) {
+      reasons[result.reason] = (reasons[result.reason] || 0) + 1
+      continue
+    }
 
-  return city || state || station.name.trim()
+    if (seenCodes.has(result.station.code)) {
+      duplicateCodes += 1
+      continue
+    }
+
+    seenCodes.add(result.station.code)
+    valid.push(result.station)
+    if (result.missingCity) missingCity += 1
+  }
+
+  return { datasetRecords: dataset.length, valid, reasons, duplicateCodes, missingCity }
 }
 
-async function main() {
-  const dataset = JSON.parse(fs.readFileSync(DATASET_PATH, 'utf8'))
+async function importStations({ apply = false } = {}) {
+  const parsed = readDataset()
+  const report = {
+    mode: apply ? 'APPLY' : 'DRY RUN',
+    datasetRecords: parsed.datasetRecords,
+    eligibleRecords: parsed.valid.length,
+    invalidRecords: parsed.datasetRecords - parsed.valid.length - parsed.duplicateCodes,
+    invalidByReason: parsed.reasons,
+    duplicateDatasetCodes: parsed.duplicateCodes,
+    recordsWithoutAddressLocality: parsed.missingCity,
+    databaseCompared: false,
+    existingRecords: null,
+    existingNameConflictsPreserved: null,
+    insertedRecords: 0,
+    datasetCodesPresentAfterImport: null,
+    totalDatabaseStations: null,
+  }
 
-  const validStations = dataset.filter(station => {
-    const code = String(station.code || '').trim()
-    const name = String(station.name || '').trim()
+  if (!apply) {
+    console.log(JSON.stringify(report, null, 2))
+    console.log('DRY RUN ONLY: no database connection or writes were made.')
+    return report
+  }
 
-    return code &&
-      name &&
-      code.length <= 10 &&
-      name.length <= 120 &&
-      !/^(XX|YY)-/i.test(code)
-  })
-
+  assertDevelopmentTarget()
+  const pool = require('../src/config/db')
   const connection = await pool.getConnection()
 
-  let inserted = 0
-  let existing = 0
-
   try {
-    await connection.beginTransaction()
+    const identity = await verifyDevelopmentConnection(connection)
+    const [stationTables] = await connection.execute(
+      `SELECT engine AS engine
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'stations'`,
+    )
+    if (!stationTables.length || stationTables[0].engine !== 'InnoDB') {
+      throw new Error('Expected InnoDB stations table is missing from the confirmed development database.')
+    }
 
-    for (let i = 0; i < validStations.length; i += BATCH_SIZE) {
-      const batch = validStations.slice(i, i + BATCH_SIZE)
+    const [existingRows] = await connection.query('SELECT code, name, city FROM stations')
+    report.database = identity.databaseName
+    report.mysqlVersion = identity.version
+    report.databaseCompared = true
+    report.existingRecords = existingRows.length
+    report.existingNameConflictsPreserved = 0
+    const existingByCode = new Map(
+      existingRows.map(row => [String(row.code).toUpperCase(), row]),
+    )
+    const toInsert = []
 
-      for (const station of batch) {
-        const code = String(station.code).trim().toUpperCase()
-        const name = String(station.name).trim()
-        const city = getCity(station)
-
-        const [result] = await connection.execute(
-          `INSERT INTO stations (code, name, city)
-           VALUES (?, ?, ?)
-           ON DUPLICATE KEY UPDATE code = VALUES(code)`,
-          [code, name, city],
-        )
-
-        if (result.affectedRows === 1) inserted++
-        else existing++
+    for (const station of parsed.valid) {
+      const existing = existingByCode.get(station.code)
+      if (!existing) {
+        toInsert.push(station)
+      } else {
+        if (existing.name.trim() !== station.name) {
+          report.existingNameConflictsPreserved += 1
+        }
       }
     }
 
-    await connection.commit()
+    await connection.beginTransaction()
+    try {
+      for (let index = 0; index < toInsert.length; index += BATCH_SIZE) {
+        const batch = toInsert.slice(index, index + BATCH_SIZE)
+        const [result] = await connection.query(
+          `INSERT IGNORE INTO stations (code, name, city)
+           VALUES ?`,
+          [batch.map(station => [station.code, station.name, station.city])],
+        )
+        report.insertedRecords += Number(result.affectedRows || 0)
+      }
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    }
 
-    const [rows] = await connection.query(
-      'SELECT COUNT(*) AS total FROM stations',
-    )
+    const [databaseRows] = await connection.query('SELECT code FROM stations')
+    const databaseCodes = new Set(databaseRows.map(row => String(row.code).toUpperCase()))
+    report.datasetCodesPresentAfterImport = parsed.valid.filter(
+      station => databaseCodes.has(station.code),
+    ).length
+    report.totalDatabaseStations = databaseRows.length
 
-    console.log({
-      datasetRecords: dataset.length,
-      eligibleRecords: validStations.length,
-      inserted,
-      existingOrSkipped: existing,
-      totalDatabaseStations: rows[0].total,
-    })
-  } catch (error) {
-    await connection.rollback()
-    throw error
+    console.log(JSON.stringify(report, null, 2))
+    return report
   } finally {
     connection.release()
     await pool.end()
   }
 }
 
-main().catch(error => {
-  console.error('Station import failed:', error.message)
-  process.exitCode = 1
-})
+if (require.main === module) {
+  importStations({ apply: process.argv.includes('--apply') }).catch(error => {
+    console.error('Station import failed:', error.message)
+    process.exitCode = 1
+  })
+}
+
+module.exports = {
+  importStations,
+  readDataset,
+  requireDevelopmentTarget: assertDevelopmentTarget,
+}
