@@ -74,6 +74,9 @@ jobs:
       - name: Run backend tests
         run: npm test
 
+      - name: Check demo seed entry points
+        run: node --check seed-train-demo.js && node --check setup-train-demo.js
+
       - name: Run isolated MySQL inventory and concurrency tests
         env:
           RRS_MYSQL_TEST_HOST: 127.0.0.1
@@ -104,6 +107,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Run frontend tests
+        run: npm test
 
       - name: Build frontend
         run: npm run build
