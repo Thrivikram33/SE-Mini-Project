@@ -59,10 +59,14 @@ function loadTestApplication() {
   const databaseModulePath = require.resolve('../src/config/db')
   const previousDatabaseModule = require.cache[databaseModulePath]
   const previousSessionSecret = process.env.SESSION_SECRET
+  const previousNodeEnv = process.env.NODE_ENV
   // The production server requires an explicit session secret at startup.
   // Use a throwaway value only while constructing the test app; never depend
   // on a developer or CI secret for an isolated integration test.
   process.env.SESSION_SECRET = 'mysql-integration-test-only-session-secret'
+  // The API flow below exercises the deterministic failed-payment path,
+  // which the simulator enables only in development mode.
+  process.env.NODE_ENV = 'development'
   require.cache[databaseModulePath] = {
     id: databaseModulePath,
     filename: databaseModulePath,
@@ -78,6 +82,8 @@ function loadTestApplication() {
     else delete require.cache[databaseModulePath]
     if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET
     else process.env.SESSION_SECRET = previousSessionSecret
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previousNodeEnv
   }
 }
 
