@@ -45,7 +45,7 @@ export default function SeatSelectionPage() {
 
 
   useEffect(() => {
-    if (!/^[1-9]\\d*$/.test(scheduleId)) {
+    if (!/^[1-9]\d*$/.test(scheduleId)) {
       setError('No valid journey was selected. Return to train search and choose a train.')
       return
     }
