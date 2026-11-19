@@ -14,7 +14,8 @@
     "benchmark:booking": "node scripts/benchmark-booking.js",
     "monitor:availability": "node scripts/monitor-availability.js",
     "report:availability": "node scripts/monitor-availability.js --report",
-    "seed:imported-trains": "node scripts/generate-imported-schedules.js"
+    "seed:imported-trains": "node scripts/generate-imported-schedules.js",
+    "migrate:booking": "node scripts/migrate-booking-schema.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
