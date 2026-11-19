@@ -16,9 +16,7 @@ const CLASS_NAMES = {
 export default function SeatSelectionPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [scheduleId, setScheduleId] = useState(
-    searchParams.get('scheduleId') || '',
-  )
+  const scheduleId = searchParams.get('scheduleId') || ''
   const [classes, setClasses] = useState([])
   const [classType, setClassType] = useState('')
   const [seats, setSeats] = useState([])
@@ -45,37 +43,44 @@ export default function SeatSelectionPage() {
     return data
   }
 
-  async function searchClasses(event) {
-    event?.preventDefault()
-    setError('')
-    setMessage('')
-    setClasses([])
-    setSeats([])
-    setSelectedSeats([])
-    setClassType('')
-    setCalculatedFare(null)
 
+  useEffect(() => {
     if (!/^[1-9]\d*$/.test(scheduleId)) {
-      setError('Enter a valid schedule ID.')
+      setError('No valid journey was selected. Return to train search and choose a train.')
       return
     }
 
-    setLoading(true)
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/schedules/${encodeURIComponent(scheduleId)}/classes`,
-      )
-      const data = await readJson(response)
-      setClasses(data.classes || [])
-      if (!data.classes?.length) {
-        setMessage('No travel classes are configured for this schedule.')
+    const controller = new AbortController()
+    async function loadClasses() {
+      setError('')
+      setMessage('')
+      setClasses([])
+      setSeats([])
+      setSelectedSeats([])
+      setClassType('')
+      setCalculatedFare(null)
+      setLoading(true)
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/schedules/${encodeURIComponent(scheduleId)}/classes`,
+          { signal: controller.signal },
+        )
+        const data = await readJson(response)
+        setClasses(data.classes || [])
+        if (!data.classes?.length) {
+          setMessage('No travel classes are configured for this schedule.')
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message || 'Unable to load travel classes.')
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
       }
-    } catch (err) {
-      setError(err.message || 'Unable to load travel classes.')
-    } finally {
-      setLoading(false)
     }
-  }
+    loadClasses()
+    return () => controller.abort()
+  }, [scheduleId])
 
   useEffect(() => {
     if (!classType || !scheduleId) {
@@ -177,7 +182,8 @@ export default function SeatSelectionPage() {
         source,
         destination,
         classType,
-        seatIds: [...selectedSeats].sort((a, b) => Number(a) - Number(b)),
+        // Keep the passenger's seat-selection order: index N belongs to passenger N.
+        seatIds: [...selectedSeats],
         passengers: passengers.slice(0, passengerCount),
         ...(import.meta.env.DEV ? { paymentOutcome } : {}),
       }
@@ -225,31 +231,20 @@ export default function SeatSelectionPage() {
       </section>
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-        <form onSubmit={searchClasses} className="flex flex-col gap-3 sm:flex-row">
-          <label className="flex-1 text-sm font-semibold text-slate-700">
-            Schedule ID
-            <input
-              value={scheduleId}
-              onChange={(event) => {
-                setScheduleId(event.target.value)
-                setCalculatedFare(null)
-                setSeats([])
-              }}
-              inputMode="numeric"
-              required
-              pattern="[1-9][0-9]*"
-              placeholder="Enter a schedule ID"
-              className="mt-2 block w-full rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={loading}
-            className="self-end rounded-xl bg-sky-500 px-6 py-3 font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-50"
-          >
-            Load classes
-          </button>
-        </form>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex-1 text-sm font-semibold text-slate-700">
+            Selected journey
+            <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono font-normal text-slate-800">
+              Schedule reference: {scheduleId || 'Not selected'}
+            </p>
+            <p className="mt-1 text-xs font-normal text-slate-500">
+              This reference is supplied automatically by train search and cannot be edited here.
+            </p>
+          </div>
+          <p className="text-sm text-slate-500" role="status">
+            {loading ? 'Loading classes...' : classes.length ? 'Classes loaded' : ' '}
+          </p>
+        </div>
 
         {error && (
           <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">

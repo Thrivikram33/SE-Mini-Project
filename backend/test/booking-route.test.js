@@ -12,6 +12,7 @@ let cancelBehavior = async () => ({ bookingId: 9, status: 'CANCELLED', releasedS
 let historyBehavior = async () => []
 let pnrBehavior = async () => ({ bookingId: 9, pnr: 'PNR2345678AB', status: 'CONFIRMED' })
 let capturedUserId
+let refundPreviewBehavior = async () => ({ refundAmount: 1250, deductionAmount: 250, currency: 'INR', refundStatus: 'PENDING' })
 Module._load = function (requestName, parent, isMain) {
   if (parent && parent.filename === routePath && requestName === '../services/bookingService') {
     return { createBookingService: () => ({
@@ -23,6 +24,12 @@ Module._load = function (requestName, parent, isMain) {
   }
   if (parent && parent.filename === routePath && requestName === '../services/paymentSimulator') {
     return { createPaymentSimulator: () => ({}) }
+  }
+  if (parent && parent.filename === routePath && requestName === '../config/db') {
+    return {}
+  }
+  if (parent && parent.filename === routePath && requestName === '../services/refundPreviewService') {
+    return { getRefundPreview: async (_db, userId, bookingId) => refundPreviewBehavior(userId, bookingId) }
   }
   return originalLoad.call(this, requestName, parent, isMain)
 }
@@ -177,6 +184,50 @@ test('booking cancellation returns safe client errors and hides database details
 
   cancelBehavior = async () => { throw new Error('private SQL details') }
   const failed = await agent.post('/api/bookings/9/cancel')
+  assert.equal(failed.status, 500)
+  assert.equal(JSON.stringify(failed.body).includes('private SQL details'), false)
+})
+
+
+test('refund preview requires passenger authentication and uses the session owner', async () => {
+  const app = createApp()
+  assert.equal((await require('supertest')(app).get('/api/bookings/9/refund-preview')).status, 401)
+
+  const agent = require('supertest').agent(app)
+  await agent.post('/test/session/admin')
+  assert.equal((await agent.get('/api/bookings/9/refund-preview')).status, 403)
+
+  await agent.post('/test/session/passenger')
+  let captured = null
+  refundPreviewBehavior = async (userId, bookingId) => {
+    captured = { userId, bookingId }
+    return { refundAmount: 1250, deductionAmount: 250, currency: 'INR', refundStatus: 'PENDING' }
+  }
+  const response = await agent.get('/api/bookings/9/refund-preview')
+  assert.equal(response.status, 200)
+  assert.deepEqual(captured, { userId: 42, bookingId: '9' })
+  assert.deepEqual(response.body.refund, {
+    refundAmount: 1250,
+    deductionAmount: 250,
+    currency: 'INR',
+    refundStatus: 'PENDING',
+  })
+})
+
+test('refund preview returns safe client errors and hides database details', async () => {
+  const app = createApp()
+  const agent = require('supertest').agent(app)
+  await agent.post('/test/session/passenger')
+
+  refundPreviewBehavior = async () => {
+    throw Object.assign(new Error('Booking not found.'), { statusCode: 404, code: 'BOOKING_NOT_FOUND' })
+  }
+  const missing = await agent.get('/api/bookings/404/refund-preview')
+  assert.equal(missing.status, 404)
+  assert.deepEqual(missing.body, { error: 'BOOKING_NOT_FOUND', message: 'Booking not found.' })
+
+  refundPreviewBehavior = async () => { throw new Error('private SQL details') }
+  const failed = await agent.get('/api/bookings/9/refund-preview')
   assert.equal(failed.status, 500)
   assert.equal(JSON.stringify(failed.body).includes('private SQL details'), false)
 })
