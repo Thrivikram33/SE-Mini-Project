@@ -50,15 +50,35 @@ export default function BookingHistoryPage() {
 
   async function cancelBooking(booking) {
     if (booking.status !== 'CONFIRMED' || cancellingBookingId !== null) return
-    const confirmed = window.confirm(
-      `Cancel booking ${booking.pnr}? Its seats will be released and the refund will be calculated using the project's cancellation policy. This is a simulated refund record; no real payment will be transferred.`,
-    )
-    if (!confirmed) return
 
     setCancellationError('')
     setCancellationDetails(null)
     setCancellingBookingId(String(booking.bookingId))
     try {
+      const previewResponse = await fetch(
+        `${API_BASE}/api/bookings/${encodeURIComponent(booking.bookingId)}/refund-preview`,
+        { credentials: 'include' },
+      )
+      const previewResult = await previewResponse.json()
+      if (previewResponse.status === 401) {
+        navigate(`/login?returnTo=${encodeURIComponent('/bookings')}`, { replace: true })
+        return
+      }
+      if (!previewResponse.ok) {
+        throw new Error(previewResult.message || 'Refund amount could not be calculated.')
+      }
+
+      const preview = previewResult.refund || {}
+      const previewAmount = Number(preview.refundAmount)
+      if (!Number.isFinite(previewAmount) || previewAmount < 0) {
+        throw new Error('The server returned an invalid refund amount. Cancellation was not started.')
+      }
+
+      const confirmed = window.confirm(
+        `Cancel booking ${booking.pnr}? Refund amount: ${formatMoney(previewAmount, preview.currency || booking.currency || 'INR')}. Its seats will be released. This is a simulated refund; no real payment will be transferred.`,
+      )
+      if (!confirmed) return
+
       const response = await fetch(
         `${API_BASE}/api/bookings/${encodeURIComponent(booking.bookingId)}/cancel`,
         { method: 'POST', credentials: 'include' },
