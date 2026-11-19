@@ -1,6 +1,14 @@
-
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+
+const CLASS_NAMES = {
+  '1A': 'First AC',
+  '2A': 'Second AC',
+  '3A': 'Third AC',
+  SL: 'Sleeper',
+  CC: 'Chair Car',
+  '2S': 'Second Sitting',
+}
 
 function localDateString(date) {
   const year = date.getFullYear()
@@ -12,6 +20,31 @@ function localDateString(date) {
 function formatDuration(minutes) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
+
+function groupTrainsBySchedule(trains) {
+  const grouped = new Map()
+
+  for (const train of trains) {
+    const key = String(train.scheduleId)
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...train, classes: [] })
+    }
+
+    if (train.classType) {
+      const group = grouped.get(key)
+      if (!group.classes.some(item => item.classType === train.classType)) {
+        group.classes.push({
+          classType: train.classType,
+          fare: train.fare,
+          availableSeats: train.availableSeats,
+        })
+      }
+    }
+  }
+
+  return Array.from(grouped.values())
+}
+
 function StationInput({ label, value, onChange, onSelect, excludeCode }) {
   const [suggestions, setSuggestions] = useState([])
   const [open, setOpen] = useState(false)
@@ -52,7 +85,6 @@ function StationInput({ label, value, onChange, onSelect, excludeCode }) {
   function handleChange(event) {
     const query = event.target.value
     onChange(query)
- 
     onSelect(null)
     setSuggestions([])
     setOpen(false)
@@ -64,7 +96,6 @@ function StationInput({ label, value, onChange, onSelect, excludeCode }) {
   }
 
   function choose(station) {
-   
     onChange(`${station.name} (${station.code})`)
     onSelect(station)
     setOpen(false)
@@ -208,6 +239,7 @@ export default function TrainSearchPage() {
   }
 
   const today = localDateString(new Date())
+  const groupedTrains = trains === null ? null : groupTrainsBySchedule(trains)
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -278,19 +310,19 @@ export default function TrainSearchPage() {
         </p>
       )}
 
-      {trains !== null && (trains.length === 0 ? (
+      {groupedTrains !== null && (groupedTrains.length === 0 ? (
         <p className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600" role="status">
           No trains match this route and date.
         </p>
       ) : (
         <section className="mt-8 space-y-4" aria-label="Train search results" aria-live="polite">
           <h2 className="text-xl font-bold text-slate-900">
-            {trains.length} matching option{trains.length === 1 ? '' : 's'}
+            {groupedTrains.length} train{groupedTrains.length === 1 ? '' : 's'} found
           </h2>
 
-          {trains.map(train => (
+          {groupedTrains.map(train => (
             <article
-              key={`${train.scheduleId}-${train.classType}`}
+              key={train.scheduleId}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -298,8 +330,8 @@ export default function TrainSearchPage() {
                   <h3 className="text-lg font-bold text-slate-900">{train.trainName}</h3>
                   <p className="text-sm text-slate-500">Train {train.trainNumber}</p>
                 </div>
-                <span className="rounded-full bg-sky-50 px-3 py-1 text-sm font-semibold text-sky-800">
-                  {train.classType}
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
+                  {train.classes.length} class{train.classes.length === 1 ? '' : 'es'} available
                 </span>
               </div>
 
@@ -326,16 +358,43 @@ export default function TrainSearchPage() {
                 </p>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-100 pt-4 text-sm text-slate-600">
-                <span>Journey date: {train.journeyDate}</span>
-                <span>Fare: {train.fare.currency} {Number(train.fare.amount).toFixed(2)}</span>
-                <span>{train.availableSeats} seats available</span>
-                <Link
-                  to={`/seats?scheduleId=${encodeURIComponent(train.scheduleId)}&source=${encodeURIComponent(train.source.code)}&destination=${encodeURIComponent(train.destination.code)}`}
-                  className="font-semibold text-sky-700 hover:text-sky-900"
-                >
-                  Choose class and seats
-                </Link>
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <p className="mb-3 text-sm font-semibold text-slate-700">
+                  Select a travel class
+                </p>
+                {train.classes.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {train.classes.map(item => (
+                      <Link
+                        key={item.classType}
+                        to={`/seats?scheduleId=${encodeURIComponent(train.scheduleId)}&source=${encodeURIComponent(train.source.code)}&destination=${encodeURIComponent(train.destination.code)}`}
+                        className="rounded-xl border border-slate-200 p-4 transition hover:border-sky-400 hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      >
+                        <span className="font-bold text-sky-700">{item.classType}</span>
+                        <span className="mt-1 block font-semibold text-slate-900">
+                          {CLASS_NAMES[item.classType] || item.classType}
+                        </span>
+                        <span className="mt-2 block text-sm text-slate-700">
+                          {item.fare
+                            ? `${item.fare.currency} ${Number(item.fare.amount).toFixed(2)}`
+                            : 'Fare unavailable'}
+                        </span>
+                        <span className="mt-1 block text-sm text-slate-500">
+                          {item.availableSeats} seats available
+                        </span>
+                        <span className="mt-3 block text-sm font-semibold text-sky-700">
+                          Choose class and seats →
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No classes are currently configured for this train.</p>
+                )}
+              </div>
+
+              <div className="mt-4 text-sm text-slate-500">
+                Journey date: {train.journeyDate}
               </div>
             </article>
           ))}
