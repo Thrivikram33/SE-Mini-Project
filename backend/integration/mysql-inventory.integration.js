@@ -58,6 +58,11 @@ const { createAdminManagementService } = require('../src/services/adminManagemen
 function loadTestApplication() {
   const databaseModulePath = require.resolve('../src/config/db')
   const previousDatabaseModule = require.cache[databaseModulePath]
+  const previousSessionSecret = process.env.SESSION_SECRET
+  // The production server requires an explicit session secret at startup.
+  // Use a throwaway value only while constructing the test app; never depend
+  // on a developer or CI secret for an isolated integration test.
+  process.env.SESSION_SECRET = 'mysql-integration-test-only-session-secret'
   require.cache[databaseModulePath] = {
     id: databaseModulePath,
     filename: databaseModulePath,
@@ -71,6 +76,8 @@ function loadTestApplication() {
   } finally {
     if (previousDatabaseModule) require.cache[databaseModulePath] = previousDatabaseModule
     else delete require.cache[databaseModulePath]
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET
+    else process.env.SESSION_SECRET = previousSessionSecret
   }
 }
 
