@@ -3,6 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
+function formatMoney(value, currency = 'INR') {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 export default function BookingHistoryPage() {
   const navigate = useNavigate()
   const [bookings, setBookings] = useState([])
@@ -10,7 +21,7 @@ export default function BookingHistoryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cancellationError, setCancellationError] = useState('')
-  const [cancellationMessage, setCancellationMessage] = useState('')
+  const [cancellationDetails, setCancellationDetails] = useState(null)
   const [cancellingBookingId, setCancellingBookingId] = useState(null)
 
   useEffect(() => {
@@ -40,12 +51,12 @@ export default function BookingHistoryPage() {
   async function cancelBooking(booking) {
     if (booking.status !== 'CONFIRMED' || cancellingBookingId !== null) return
     const confirmed = window.confirm(
-      `Cancel booking ${booking.pnr}? The booking will be cancelled and its seats released. This flow does not calculate or process a refund.`,
+      `Cancel booking ${booking.pnr}? Its seats will be released and the refund will be calculated using the project's cancellation policy. This is a simulated refund record; no real payment will be transferred.`,
     )
     if (!confirmed) return
 
     setCancellationError('')
-    setCancellationMessage('')
+    setCancellationDetails(null)
     setCancellingBookingId(String(booking.bookingId))
     try {
       const response = await fetch(
@@ -61,15 +72,25 @@ export default function BookingHistoryPage() {
         throw new Error(result.message || 'Booking could not be cancelled.')
       }
 
+      const cancellation = result.cancellation || {}
+      const refundAmount = Number(cancellation.refundAmount)
+      if (!Number.isFinite(refundAmount) || refundAmount < 0) {
+        throw new Error('The booking was cancelled, but the server returned an invalid refund amount. Refresh booking history to verify the cancellation.')
+      }
+
       setBookings((current) => current.map((item) => (
         String(item.bookingId) === String(booking.bookingId)
-          ? { ...item, status: result.cancellation?.status || 'CANCELLED' }
+          ? { ...item, status: cancellation.status || 'CANCELLED' }
           : item
       )))
-      const releasedCount = Number(result.cancellation?.releasedSeatCount) || 0
-      setCancellationMessage(
-        `Booking ${booking.pnr} cancelled. ${releasedCount} ${releasedCount === 1 ? 'seat has' : 'seats have'} been released.`,
-      )
+      setCancellationDetails({
+        pnr: booking.pnr,
+        releasedSeatCount: Number(cancellation.releasedSeatCount) || 0,
+        refundAmount,
+        deductionAmount: Math.max(0, Number(booking.totalFare) - refundAmount),
+        refundStatus: cancellation.refundStatus || 'PENDING',
+        currency: cancellation.currency || booking.currency || 'INR',
+      })
     } catch (requestError) {
       setCancellationError(requestError.message)
     } finally {
@@ -93,7 +114,27 @@ export default function BookingHistoryPage() {
       {loading && <p role="status" className="py-8 text-slate-600">Loading your bookings…</p>}
       {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
       {cancellationError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-4 text-red-800">{cancellationError}</p>}
-      {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-4 text-emerald-800">{cancellationMessage}</p>}
+      {cancellationDetails && (
+        <section role="status" aria-live="polite" className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+          <h2 className="text-lg font-bold">Booking {cancellationDetails.pnr} cancelled</h2>
+          <p className="mt-1 text-sm">{cancellationDetails.releasedSeatCount} {cancellationDetails.releasedSeatCount === 1 ? 'seat has' : 'seats have'} been released.</p>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Calculated refund</dt>
+              <dd className="mt-1 text-xl font-extrabold">{formatMoney(cancellationDetails.refundAmount, cancellationDetails.currency)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Cancellation deduction</dt>
+              <dd className="mt-1 text-xl font-bold">{formatMoney(cancellationDetails.deductionAmount, cancellationDetails.currency)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Refund status</dt>
+              <dd className="mt-1 text-xl font-bold">{cancellationDetails.refundStatus}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs text-emerald-900">This amount is calculated and recorded by the project simulator. A PENDING status is not a real bank or payment-provider transfer.</p>
+        </section>
+      )}
       {!loading && !error && bookings.length === 0 && <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center"><h2 className="text-xl font-bold text-slate-900">No bookings yet</h2><p className="mt-2 text-slate-600">Confirmed bookings will appear here.</p><Link className="mt-5 inline-flex rounded-lg bg-sky-500 px-5 py-3 font-semibold text-slate-950" to="/trains">Search trains</Link></section>}
       <div className="grid gap-4">
         {bookings.map((booking) => <article key={booking.bookingId} className="flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
