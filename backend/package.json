@@ -15,7 +15,11 @@
     "monitor:availability": "node scripts/monitor-availability.js",
     "report:availability": "node scripts/monitor-availability.js --report",
     "seed:imported-trains": "node scripts/generate-imported-schedules.js",
-    "migrate:booking": "node scripts/migrate-booking-schema.js"
+    "migrate:booking": "node scripts/migrate-booking-schema.js",
+    "seed:demo": "node seed-train-demo.js",
+    "import:stations": "node scripts/import-stations.js",
+    "import:trains:dry-run": "node scripts/import-trains.js",
+    "import:trains": "node scripts/import-trains.js --apply"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
