@@ -14,7 +14,7 @@ import RegistrationPage from './RegistrationPage'
 import BookingTicketPage from './BookingTicketPage'
 import BookingHistoryPage from './BookingHistoryPage'
 import AdminManagementPage from './AdminManagementPage'
-function HomePage() {
+function HomePage({ user, sessionReady }) {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <section className="overflow-hidden rounded-3xl bg-slate-900 text-white shadow-xl">
@@ -41,12 +41,21 @@ function HomePage() {
                 Explore trains
               </Link>
 
-              <Link
-                to="/login"
-                className="rounded-xl border border-slate-600 px-6 py-3 font-semibold text-white transition hover:bg-slate-800"
-              >
-                Sign in
-              </Link>
+              {sessionReady && (user ? (
+                <Link
+                  to={user.role === 'ADMIN' ? '/admin' : '/bookings'}
+                  className="rounded-xl border border-slate-600 px-6 py-3 font-semibold text-white transition hover:bg-slate-800"
+                >
+                  {user.role === 'ADMIN' ? 'Operations dashboard' : 'My bookings'}
+                </Link>
+              ) : (
+                <Link
+                  to="/login"
+                  className="rounded-xl border border-slate-600 px-6 py-3 font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Sign in
+                </Link>
+              ))}
             </div>
           </div>
 
@@ -109,9 +118,9 @@ function HomePage() {
           <FeatureCard
             number="03"
             title="Your account"
-            description="Sign in or create an account to access passenger features."
-            link="/login"
-            linkLabel="Open account"
+            description={user ? 'Manage your account and access your reservations.' : 'Sign in or create an account to access passenger features.'}
+            link={user ? (user.role === 'ADMIN' ? '/admin' : '/bookings') : '/login'}
+            linkLabel={!sessionReady ? 'Checking session...' : user ? (user.role === 'ADMIN' ? 'Operations dashboard' : 'My bookings') : 'Sign in or register'}
           />
         </div>
       </section>
@@ -172,8 +181,9 @@ function PlaceholderPage({ title, description }) {
 function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
-
+  const [session, setSession] = useState({ pathname: null, user: null })
+  const sessionReady = session.pathname === location.pathname
+  const user = sessionReady ? session.user : null
 
 
   useEffect(() => {
@@ -188,18 +198,18 @@ function AppLayout() {
       if (!active) return
 
       if (!response.ok) {
-     
+        setSession({ pathname: location.pathname, user: null })
         return
       }
 
       const result = await response.json()
 
       if (active) {
-        setUser(result.user || null)
+        setSession({ pathname: location.pathname, user: result.user || null })
       }
     } catch {
       if (active) {
-        setUser(null)
+        setSession({ pathname: location.pathname, user: null })
       }
     }
   }
@@ -218,7 +228,7 @@ function AppLayout() {
         credentials: 'include',
       })
     } finally {
-      setUser(null)
+      setSession({ pathname: location.pathname, user: null })
       navigate('/login', { replace: true })
     }
   }
@@ -244,7 +254,7 @@ function AppLayout() {
           </Link>
 
           <div className="flex flex-wrap items-center gap-4 text-sm font-medium">
-            {user ? (
+            {!sessionReady ? null : user ? (
               <>
                 {isAdmin ? (
                   <>
@@ -299,7 +309,7 @@ function AppLayout() {
       </header>
 
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<HomePage user={user} sessionReady={sessionReady} />} />
         <Route path="/trains" element={<TrainSearchPage />} />
         <Route path="/bookings" element={<BookingHistoryPage />} />
         <Route path="/admin" element={<AdminManagementPage />} />
