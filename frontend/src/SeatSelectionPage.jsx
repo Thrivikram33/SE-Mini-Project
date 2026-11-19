@@ -80,10 +80,10 @@ export default function SeatSelectionPage() {
     }
     loadClasses()
     return () => controller.abort()
-  }, [scheduleId])
+  }, [scheduleId, hasValidScheduleId])
 
   useEffect(() => {
-    if (!classType || !scheduleId) {
+    if (!hasValidScheduleId || !classType) {
       return
     }
 
@@ -116,7 +116,7 @@ export default function SeatSelectionPage() {
 
     loadSeats()
     return () => controller.abort()
-  }, [scheduleId, classType])
+  }, [scheduleId, classType, hasValidScheduleId])
 
   async function calculateTotalFare() {
     setError('')
@@ -242,13 +242,13 @@ export default function SeatSelectionPage() {
             </p>
           </div>
           <p className="text-sm text-slate-500" role="status">
-            {loading ? 'Loading classes...' : classes.length ? 'Classes loaded' : ' '}
+            {hasValidScheduleId && (loading ? 'Loading classes...' : classes.length ? 'Classes loaded' : ' ')}
           </p>
         </div>
 
-        {error && (
+        {(error || !hasValidScheduleId) && (
           <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {error}
+            {error || 'No valid journey was selected. Return to train search and choose a train.'}
           </p>
         )}
         {message && (
@@ -258,7 +258,7 @@ export default function SeatSelectionPage() {
         )}
       </section>
 
-      {classes.length > 0 && (
+      {hasValidScheduleId && classes.length > 0 && (
         <section className="mt-8">
           <h2 className="text-xl font-bold text-slate-900">Choose your class</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -297,7 +297,7 @@ export default function SeatSelectionPage() {
         </section>
       )}
 
-      {classType && (
+      {hasValidScheduleId && classType && (
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-6 flex flex-wrap items-end gap-4 rounded-xl bg-slate-50 p-4">
             <label className="text-sm font-semibold text-slate-700">
