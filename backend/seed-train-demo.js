@@ -1,6 +1,12 @@
 ﻿require('dotenv').config({ path: '.env' });
 const mysql = require('mysql2/promise');
 
+function getDemoDate() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 (async () => {
   const db = await mysql.createConnection({
     host: process.env.DB_HOST,
@@ -10,6 +16,11 @@ const mysql = require('mysql2/promise');
   });
 
   try {
+    const journeyDate = process.env.DEMO_JOURNEY_DATE || getDemoDate();
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(journeyDate) || Number.isNaN(Date.parse(`${journeyDate}T00:00:00Z`))) {
+      throw new Error('DEMO_JOURNEY_DATE must be a valid date in YYYY-MM-DD format.');
+    }
+
     await db.query(`
       INSERT INTO stations (code, name, city)
       VALUES ('SBC', 'Bengaluru City Junction', 'Bengaluru'),
@@ -29,13 +40,13 @@ const mysql = require('mysql2/promise');
 
     await db.query(`
       INSERT INTO schedules (train_id, journey_date, status)
-      VALUES (?, '2026-11-10', 'SCHEDULED')
+      VALUES (?, ?, 'SCHEDULED')
       ON DUPLICATE KEY UPDATE status='SCHEDULED'
-    `, [train.train_id]);
+    `, [train.train_id, journeyDate]);
 
     const [[schedule]] = await db.query(
-      "SELECT schedule_id FROM schedules WHERE train_id=? AND journey_date='2026-11-10'",
-      [train.train_id]
+      "SELECT schedule_id FROM schedules WHERE train_id=? AND journey_date=?",
+      [train.train_id, journeyDate]
     );
 
     await db.query(`
@@ -73,7 +84,7 @@ const mysql = require('mysql2/promise');
       );
     }
 
-    console.log('Demo journey seeded successfully: Bengaluru (SBC) → Chennai (MAS), 10 November 2026.');
+    console.log('Demo journey seeded successfully: Bengaluru (SBC) → Chennai (MAS), ${journeyDate}.`);
   } finally {
     await db.end();
   }
