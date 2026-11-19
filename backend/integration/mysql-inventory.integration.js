@@ -1177,7 +1177,10 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
     assert.equal(adminLogin.body.user.role, 'ADMIN')
     assert.equal((await adminAgent.get('/api/admin/trains')).status, 200)
   } finally {
-    await cleanupFixture()
-    await pool.end()
+    try {
+      await cleanupFixture()
+    } finally {
+      await pool.end()
+    }
   }
 })
