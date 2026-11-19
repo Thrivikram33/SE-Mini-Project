@@ -130,3 +130,22 @@ Pull Request: [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58) (op
 | Database integration | VERIFIED IN CI; NOT LOCALLY | Local `npm run test:mysql` is blocked before connection because dedicated test-only MySQL variables are absent; no local database was changed. CI run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) passed the isolated MySQL job on code commit `78fe96b`; the documentation push triggers another run. |
 | Dependencies and schema | VERIFIED | No dependency, lockfile, or migration changes. Production dependency audits report zero vulnerabilities. |
 | Release | IN PROGRESS | Three implementation commits are pushed. The handoff/evidence commit remains before final push and final CI review. |
+
+## Train dataset integration and search (2026-11-19)
+
+Branch: `codex/train-data-integration`, based on `main` at `d3641dd`. No commit
+or push has been made.
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Source dataset parsing | VERIFIED | `stations.json`: 8,990 rows, 8,965 eligible unique stations, 25 invalid, no duplicates. `trains.txt`: 5,208 rows, 4,808 eligible unique routes, 400 structurally ineligible, no duplicate train numbers. |
+| Route import validation | VERIFIED | 346,404 route stops and 30,232 running-day rows imported. 620 records trim 17,296 stops outside declared endpoints. Missing endpoint times and chronology anomalies remain reported and are never invented. |
+| Additive/idempotent import and migrations | VERIFIED LOCALLY | Confirmed empty `railway_reservation_dev` on local MySQL 8.0.43; initial schema, migrations 002–006, and train-search indexes applied. Imports inserted 8,965 stations, 4,808 trains, 346,404 route stops, and 30,232 running-day rows. |
+| Search route eligibility | VERIFIED BY UNIT TESTS | Source must precede destination; matching scheduled trains remain supported; imported route-only trains match their running weekday and show null schedule/fare/class, zero seats, and `bookable: false`. No result limit exists. |
+| Frontend | VERIFIED LOCALLY | Route-only results remain distinct when schedule IDs are null and cannot open seat selection. Frontend tests, lint, and production build pass. |
+| Booking demo inventory | VERIFIED LOCALLY | Route-scoped seed for SBC–MYS (2026-11-19 through 2026-12-18) added 532 schedules across 20 trains, 3,192 fares/classes, 3,192 coaches, and 31,920 seats using imported operating weekdays. Re-run inserted zero rows; seeded values are explicitly simulated. |
+| Database search and inventory APIs | VERIFIED LOCALLY | For 2026-11-19, search returned 17 trains and 102 bookable class rows across all six supported classes. Class, fare, and seat-map endpoints returned matching database rows; each tested class had ten available seats before booking. |
+| Booking regression | VERIFIED BY UNIT, API, AND MYSQL | Backend 205/205 and frontend 14/14 tests pass. Dedicated local MySQL integration passed actual registration/login, fare/seat retrieval, success/failure payment, PNR/history, refund preview, cancellation/release, authorization, and concurrency assertions. Fixture rows were cleaned. |
+
+See `docs/train-data-integration.md` and the latest section in
+`docs/TEST_EVIDENCE.md` for exact commands and evidence.

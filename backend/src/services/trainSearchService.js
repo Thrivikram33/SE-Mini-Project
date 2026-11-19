@@ -1,4 +1,3 @@
-
 const pool = require('../config/db')
 
 function invalidRequest(message) {
@@ -24,48 +23,28 @@ function normalizeDate(value) {
   }
 
   const [year, month, day] = value.split('-').map(Number)
-
-  if (year === 0) {
-    throw invalidRequest('Date must be a valid calendar date.')
-  }
-
+  if (year === 0) throw invalidRequest('Date must be a valid calendar date.')
   const parsed = new Date(0)
   parsed.setUTCHours(0, 0, 0, 0)
   parsed.setUTCFullYear(year, month - 1, day)
-
-  if (
-    parsed.getUTCFullYear() !== year ||
-    parsed.getUTCMonth() !== month - 1 ||
-    parsed.getUTCDate() !== day
-  ) {
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
     throw invalidRequest('Date must be a valid calendar date.')
   }
-
   if (value < new Date().toISOString().slice(0, 10)) {
     throw invalidRequest('Journey date cannot be in the past.')
   }
-
   return value
 }
 
 function minutesFromJourneyStart(time, dayOffset) {
-  if (typeof time !== 'string' || !/^\d{2}:\d{2}:\d{2}$/.test(time)) {
-    return null
-  }
-
+  if (typeof time !== 'string' || !/^\d{2}:\d{2}:\d{2}$/.test(time)) return null
   const [hours, minutes, seconds] = time.split(':').map(Number)
-
-  if (hours > 23 || minutes > 59 || seconds > 59) {
-    return null
-  }
-
+  if (hours > 23 || minutes > 59 || seconds > 59) return null
   return Number(dayOffset) * 1440 + hours * 60 + minutes
 }
 
 function formatDate(value) {
-  return value instanceof Date
-    ? value.toISOString().slice(0, 10)
-    : String(value)
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value)
 }
 
 async function assertDifferentStations(source, destination) {
@@ -78,41 +57,23 @@ async function assertDifferentStations(source, destination) {
 
   const sourceKey = stationKey(source)
   const destinationKey = stationKey(destination)
-
-  const sourceIds = new Set(
-    stations
-      .filter(
-        station =>
-          stationKey(station.name) === sourceKey ||
-          stationKey(station.code) === sourceKey,
-      )
-      .map(station => String(station.stationId)),
+  const sourceIds = new Set(stations.filter(station =>
+    stationKey(station.name) === sourceKey || stationKey(station.code) === sourceKey,
+  ).map(station => String(station.stationId)))
+  const sameStation = stations.some(station =>
+    sourceIds.has(String(station.stationId)) &&
+    (stationKey(station.name) === destinationKey || stationKey(station.code) === destinationKey),
   )
-
-  const sameStation = stations.some(
-    station =>
-      sourceIds.has(String(station.stationId)) &&
-      (
-        stationKey(station.name) === destinationKey ||
-        stationKey(station.code) === destinationKey
-      ),
-  )
-
-  if (sameStation) {
-    throw invalidRequest('Source and destination must be different stations.')
-  }
+  if (sameStation) throw invalidRequest('Source and destination must be different stations.')
 }
 
 async function searchTrains({ source, destination, date }) {
   const normalizedSource = normalizeStation(source, 'Source')
   const normalizedDestination = normalizeStation(destination, 'Destination')
-
   if (stationKey(normalizedSource) === stationKey(normalizedDestination)) {
     throw invalidRequest('Source and destination must be different stations.')
   }
-
   const journeyDate = normalizeDate(date)
-
   await assertDifferentStations(normalizedSource, normalizedDestination)
 
   const [rows] = await pool.execute(
@@ -121,113 +82,68 @@ async function searchTrains({ source, destination, date }) {
        t.train_number AS trainNumber,
        t.train_name AS trainName,
        s.schedule_id AS scheduleId,
-
        DATE_FORMAT(
-         DATE_ADD(
-           s.journey_date,
-           INTERVAL source_stop.day_offset DAY
+         COALESCE(
+           DATE_ADD(s.journey_date, INTERVAL source_stop.day_offset DAY),
+           ?
          ),
          '%Y-%m-%d'
        ) AS journeyDate,
-
        source_station.code AS sourceCode,
        source_station.name AS sourceName,
        source_stop.departure_time AS departureTime,
        source_stop.day_offset AS sourceDayOffset,
-
        destination_station.code AS destinationCode,
        destination_station.name AS destinationName,
        destination_stop.arrival_time AS arrivalTime,
        destination_stop.day_offset AS destinationDayOffset,
-
        coach.class_type AS classType,
        fare.amount AS fare,
        fare.currency AS currency,
-
-       COUNT(
-         DISTINCT CASE
-           WHEN seat.status = 'AVAILABLE'
-             AND allocation.booking_seat_id IS NULL
-           THEN seat.seat_id
-         END
-       ) AS availableSeats
-
-     FROM schedules s
-
-     JOIN trains t
-       ON t.train_id = s.train_id
-      AND t.active = TRUE
-
-     JOIN route_stops source_stop
-       ON source_stop.train_id = t.train_id
-
-     JOIN stations source_station
-       ON source_station.station_id = source_stop.station_id
-
+       COUNT(DISTINCT CASE
+         WHEN seat.status = 'AVAILABLE' AND allocation.booking_seat_id IS NULL
+         THEN seat.seat_id
+       END) AS availableSeats
+     FROM trains t
+     JOIN route_stops source_stop ON source_stop.train_id = t.train_id
+     JOIN stations source_station ON source_station.station_id = source_stop.station_id
      JOIN route_stops destination_stop
        ON destination_stop.train_id = t.train_id
       AND destination_stop.sequence_no > source_stop.sequence_no
-
      JOIN stations destination_station
        ON destination_station.station_id = destination_stop.station_id
-
-     LEFT JOIN coaches coach
-       ON coach.schedule_id = s.schedule_id
-
+     LEFT JOIN schedules s
+       ON s.train_id = t.train_id
+      AND s.journey_date = DATE_SUB(?, INTERVAL source_stop.day_offset DAY)
+     LEFT JOIN train_running_days running_day
+       ON running_day.train_id = t.train_id
+      AND running_day.weekday = DAYOFWEEK(
+        DATE_SUB(?, INTERVAL source_stop.day_offset DAY)
+      ) - 1
+     LEFT JOIN coaches coach ON coach.schedule_id = s.schedule_id
      LEFT JOIN fares fare
-       ON fare.schedule_id = s.schedule_id
-      AND fare.class_type = coach.class_type
-
-     LEFT JOIN seats seat
-       ON seat.coach_id = coach.coach_id
-
+       ON fare.schedule_id = s.schedule_id AND fare.class_type = coach.class_type
+     LEFT JOIN seats seat ON seat.coach_id = coach.coach_id
      LEFT JOIN booking_seats allocation
        ON allocation.seat_id = seat.seat_id
       AND allocation.allocation_status IN ('HELD', 'CONFIRMED')
-
-     WHERE s.journey_date =
-       DATE_SUB(?, INTERVAL source_stop.day_offset DAY)
-
-       AND s.status = 'SCHEDULED'
+     WHERE t.active = TRUE
+       AND (s.schedule_id IS NOT NULL AND s.status = 'SCHEDULED'
+         OR s.schedule_id IS NULL AND running_day.train_id IS NOT NULL)
        AND source_stop.departure_time IS NOT NULL
        AND destination_stop.arrival_time IS NOT NULL
-
-       AND (
-         source_station.name = ?
-         OR source_station.code = ?
-       )
-
-       AND (
-         destination_station.name = ?
-         OR destination_station.code = ?
-       )
-
+       AND (source_station.name = ? OR source_station.code = ?)
+       AND (destination_station.name = ? OR destination_station.code = ?)
      GROUP BY
-       t.train_id,
-       t.train_number,
-       t.train_name,
-       s.schedule_id,
-       s.journey_date,
-
-       source_station.code,
-       source_station.name,
-       source_stop.departure_time,
-       source_stop.day_offset,
-
-       destination_station.code,
-       destination_station.name,
-       destination_stop.arrival_time,
-       destination_stop.day_offset,
-
-       coach.class_type,
-       fare.amount,
-       fare.currency
-
-     ORDER BY
-       source_stop.departure_time,
-       t.train_number,
-       coach.class_type`,
+       t.train_id, t.train_number, t.train_name, s.schedule_id, s.journey_date,
+       source_station.code, source_station.name, source_stop.departure_time,
+       source_stop.day_offset, destination_station.code, destination_station.name,
+       destination_stop.arrival_time, destination_stop.day_offset,
+       coach.class_type, fare.amount, fare.currency
+     ORDER BY source_stop.departure_time, t.train_number, coach.class_type`,
     [
+      journeyDate,
+      journeyDate,
       journeyDate,
       normalizedSource,
       normalizedSource,
@@ -237,60 +153,31 @@ async function searchTrains({ source, destination, date }) {
   )
 
   return rows.flatMap(row => {
-    const departure = minutesFromJourneyStart(
-      row.departureTime,
-      row.sourceDayOffset,
-    )
+    const departure = minutesFromJourneyStart(row.departureTime, row.sourceDayOffset)
+    const arrival = minutesFromJourneyStart(row.arrivalTime, row.destinationDayOffset)
+    if (departure === null || arrival === null || arrival < departure) return []
 
-    const arrival = minutesFromJourneyStart(
-      row.arrivalTime,
-      row.destinationDayOffset,
-    )
-
-    if (
-      departure === null ||
-      arrival === null ||
-      arrival < departure
-    ) {
-      return []
-    }
+    const availableSeats = Number(row.availableSeats || 0)
+    const hasFare = row.fare !== null && row.fare !== undefined
+    const bookable = row.scheduleId !== null && row.scheduleId !== undefined &&
+      Boolean(row.classType) && hasFare && availableSeats > 0
 
     return [{
       trainId: row.trainId,
       trainNumber: row.trainNumber,
       trainName: row.trainName,
       scheduleId: row.scheduleId,
-
-      source: {
-        code: row.sourceCode,
-        name: row.sourceName,
-      },
-
-      destination: {
-        code: row.destinationCode,
-        name: row.destinationName,
-      },
-
+      source: { code: row.sourceCode, name: row.sourceName },
+      destination: { code: row.destinationCode, name: row.destinationName },
       departureTime: row.departureTime,
       arrivalTime: row.arrivalTime,
       journeyDate: formatDate(row.journeyDate),
-
       durationMinutes: arrival - departure,
-
-      arrivalDaysAfterDeparture:
-        Number(row.destinationDayOffset) -
-        Number(row.sourceDayOffset),
-
+      arrivalDaysAfterDeparture: Number(row.destinationDayOffset) - Number(row.sourceDayOffset),
       classType: row.classType || null,
-
-      fare: row.fare === null
-        ? null
-        : {
-            amount: Number(row.fare),
-            currency: row.currency,
-          },
-
-      availableSeats: Number(row.availableSeats || 0),
+      fare: hasFare ? { amount: Number(row.fare), currency: row.currency } : null,
+      availableSeats,
+      bookable,
     }]
   })
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { groupTrainsBySchedule } from './trainSearchUtils'
 
 const CLASS_NAMES = {
   '1A': 'First AC',
@@ -19,30 +20,6 @@ function localDateString(date) {
 
 function formatDuration(minutes) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
-}
-
-function groupTrainsBySchedule(trains) {
-  const grouped = new Map()
-
-  for (const train of trains) {
-    const key = String(train.scheduleId)
-    if (!grouped.has(key)) {
-      grouped.set(key, { ...train, classes: [] })
-    }
-
-    if (train.classType) {
-      const group = grouped.get(key)
-      if (!group.classes.some(item => item.classType === train.classType)) {
-        group.classes.push({
-          classType: train.classType,
-          fare: train.fare,
-          availableSeats: train.availableSeats,
-        })
-      }
-    }
-  }
-
-  return Array.from(grouped.values())
 }
 
 function StationInput({ label, value, onChange, onSelect, excludeCode }) {
@@ -319,10 +296,15 @@ export default function TrainSearchPage() {
           <h2 className="text-xl font-bold text-slate-900">
             {groupedTrains.length} train{groupedTrains.length === 1 ? '' : 's'} found
           </h2>
+          {groupedTrains.some(train => train.classes.length > 0) && (
+            <p role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Demo fares and seats are simulated project data. Availability is not connected to live railway inventory.
+            </p>
+          )}
 
           {groupedTrains.map(train => (
             <article
-              key={train.scheduleId}
+              key={train.resultKey}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -331,7 +313,7 @@ export default function TrainSearchPage() {
                   <p className="text-sm text-slate-500">Train {train.trainNumber}</p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
-                  {train.classes.length} class{train.classes.length === 1 ? '' : 'es'} available
+                  {train.classes.length} class{train.classes.length === 1 ? '' : 'es'} configured
                 </span>
               </div>
 
@@ -365,7 +347,7 @@ export default function TrainSearchPage() {
                 {train.classes.length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {train.classes.map(item => (
-                      <Link
+                      item.bookable ? <Link
                         key={item.classType}
                         to={`/seats?scheduleId=${encodeURIComponent(train.scheduleId)}&source=${encodeURIComponent(train.source.code)}&destination=${encodeURIComponent(train.destination.code)}`}
                         className="rounded-xl border border-slate-200 p-4 transition hover:border-sky-400 hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -385,11 +367,37 @@ export default function TrainSearchPage() {
                         <span className="mt-3 block text-sm font-semibold text-sky-700">
                           Choose class and seats →
                         </span>
-                      </Link>
+                      </Link> : <div
+                        key={item.classType}
+                        aria-disabled="true"
+                        className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-500"
+                      >
+                        <span className="font-bold">{item.classType}</span>
+                        <span className="mt-1 block font-semibold">
+                          {CLASS_NAMES[item.classType] || item.classType}
+                        </span>
+                        <span className="mt-2 block text-sm">
+                          {item.fare
+                            ? `${item.fare.currency} ${Number(item.fare.amount).toFixed(2)}`
+                            : 'Fare unavailable'}
+                        </span>
+                        <span className="mt-1 block text-sm">
+                          {item.availableSeats} seats available
+                        </span>
+                        <span className="mt-3 block text-sm font-semibold">
+                          {item.availableSeats === 0 && item.fare
+                            ? 'No seats are currently available.'
+                            : 'Booking unavailable: schedule, fare, or seat inventory is not configured.'}
+                        </span>
+                      </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500">No classes are currently configured for this train.</p>
+                  <p className="text-sm text-slate-500">
+                    {train.scheduleId == null
+                      ? 'The route and operating days are available. Booking is unavailable because no application schedule, fare, coach, or seat inventory is configured.'
+                      : 'No classes are currently configured for this train.'}
+                  </p>
                 )}
               </div>
 

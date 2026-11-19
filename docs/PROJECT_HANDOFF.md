@@ -1,7 +1,7 @@
 # Project handoff
 
-Last verified locally: 2026-11-09
-Current branch: `feature/issue-18-completion`
+Last verified locally: 2026-11-19
+Current branch: `codex/train-data-integration`
 Issue #10 pull request: [#44](https://github.com/Thrivikram33/SE-Mini-Project/pull/44), merged into `main`; its latest recorded CI-verified commit is `6433806`.
 
 ## Issue #10 — RRS-F-010
@@ -128,3 +128,41 @@ Issue #24 is open and assigned to `darthham`. Its acceptance criteria are: inval
 Local verification: backend unit/API suite **PASS (174/174)**; train-search injection suite **PASS (25/25)**; frontend tests **PASS (12/12)**; frontend lint and production build **PASS**; production dependency audits **PASS (0 findings)**. Local MySQL integration is **BLOCKED before connection** because dedicated `RRS_MYSQL_TEST_*` credentials are absent. GitHub Actions run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) **PASSED** repository checks, the backend suite and isolated MySQL integration, and the frontend production build on code commit `78fe96b`. The documentation-only commit will trigger another run.
 
 Branch: `feature/issue-24-input-validation-sanitization`. Pull request: [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58), open against `main`, awaiting review.
+
+## Train dataset integration and search (2026-11-19)
+
+Train dataset integration was completed on local branch
+`codex/train-data-integration`, based on `main` commit `d3641dd`. Source parsing
+found 8,965 eligible station records from 8,990 and 4,808 eligible train
+records from 5,208. The importer reports 400 structurally ineligible train
+rows, trims 17,296 stops outside declared endpoints across 620 records, and
+preserves 346,404 route stops and 30,232 running-day rows. Missing endpoint
+times and 22 chronology warnings remain visible; no values are filled in.
+
+Search previously required a schedule row, which hid trains that had route and
+weekday data but no application schedule. It now searches ordered active train
+routes and matches either a configured scheduled service or a route-only train
+by its source-departure weekday. Route-only results have no schedule, fare,
+class, seats, or booking link. The frontend groups these by train and selected
+route rather than a null schedule ID. Existing booking, payment, cancellation,
+authorization, and seat-allocation code remains in place.
+
+Local verification on 2026-11-19: backend **205/205 tests passed**; frontend
+**14/14 tests passed**; frontend ESLint and production build passed. MySQL
+8.0.43 on the local server was verified, and the initially empty
+`railway_reservation_dev` received the guarded initial schema, migrations
+002–006, and the train-search indexes. The imports inserted 8,965 stations,
+4,808 trains, 346,404 route stops, and 30,232 weekday rows. The database-backed
+verifier passed with no missing rows, route/day mismatches, duplicate keys, or
+foreign-key violations. The route-scoped simulated seed added 532 schedules
+across 20 SBC–MYS trains, 3,192 fares/classes, 3,192 coaches, and 31,920 seats.
+An identical rerun inserted no rows. Database-backed search returned 17 trains
+and all six classes on 2026-11-19; class, fare, and seat endpoints returned
+matching inventory. The isolated MySQL suite passed the HTTP booking lifecycle
+and concurrency checks; test fixtures were cleaned from
+`railway_reservation_issue10_test`. All seeded fares and inventory are
+simulated project values. See [`train-data-integration.md`](train-data-integration.md)
+and [`booking-inventory-demo.md`](booking-inventory-demo.md) for exact commands
+and limits.
+
+No commit or push has been made. The local branch contains uncommitted changes.

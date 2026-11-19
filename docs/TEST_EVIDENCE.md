@@ -120,3 +120,34 @@ The local MySQL limitation is not represented as a passing database or end-to-en
 | MySQL integration | `cd backend; npm.cmd run test:mysql` | **BLOCKED before connection:** missing `RRS_MYSQL_TEST_HOST`, `RRS_MYSQL_TEST_USER`, `RRS_MYSQL_TEST_PASSWORD`. The guarded integration test refused to connect; no DB was changed. |
 | CI | PR [#58](https://github.com/Thrivikram33/SE-Mini-Project/pull/58), initial run [#43215110468](https://github.com/Thrivikram33/SE-Mini-Project/actions/runs/43215110468) | **PASS on code commit `78fe96b`:** repository checks, backend tests, isolated MySQL integration, and frontend production build. The documentation push triggers a follow-up run; inspect PR checks for final state. |
 | Database/dependencies | Diff review | **NO CHANGE:** no schema migration, runtime dependency, or lockfile change. |
+
+## Train dataset integration and search (2026-11-19)
+
+| Area | Command / evidence | Result |
+|---|---|---|
+| Station dataset dry run | `cd backend; npm.cmd run import:stations` | **PASS, SOURCE-ONLY:** parsed 8,990 records; 8,965 eligible unique stations; 25 invalid; no duplicate source codes. No database connection or writes. |
+| Train dataset dry run | `cd backend; npm.cmd run import:trains` | **PASS, SOURCE-ONLY:** parsed 5,208 records; 4,808 eligible routes; 400 invalid; no duplicate train numbers. Eligible data contains 346,404 route stops and 30,232 running-day rows. No database connection or writes. |
+| Dataset, seed normalization, and backend regression suite | `cd backend; npm.cmd test` | **PASS: 205 tests, 0 failures, 0 skipped.** Includes station/train validation, route order, endpoint trimming, running-day-aware schedule planning, simulated fare gating, route-only search, DB target guard, and existing regression coverage. |
+| Frontend tests | `cd frontend; npm.cmd test` | **PASS: 14 tests, 0 failures.** Includes separate grouping for unscheduled trains and preservation of per-class bookability. |
+| Frontend lint | `cd frontend; npm.cmd run lint` | **PASS.** An existing invalid-schedule effect was changed to derive the error from the schedule ID, preserving the message without synchronous effect state updates. |
+| Frontend production build | `cd frontend; npm.cmd run build` | **PASS** with Vite 8.3.4. |
+| Backend syntax checks | `node --check` for station/train importers, migration and verifier scripts, dataset helpers, search service, and MySQL integration suite | **PASS.** |
+| MySQL target preflight | Read-only identity and `information_schema` inspection before migration | **PASS:** local MySQL 8.0.43, target `railway_reservation_dev`, initially empty schema. No user or booking records were present. |
+| Schema migrations | `npm.cmd run migrate:initial`; `npm.cmd run migrate:booking`; `npm.cmd run migrate:train-search-indexes`; `npm.cmd run migrate:train-days` | **PASS:** base schema, migrations 002–004, search indexes, and weekday table applied idempotently to the confirmed development DB. No drop/recreate operation was used. |
+| Station import | `npm.cmd run import:stations -- --apply` | **PASS:** inserted 8,965 eligible stations; 25 invalid source rows excluded; zero prior station records or preserved conflicts. |
+| Train/route/day import | `npm.cmd run import:trains -- --apply` | **PASS:** inserted 4,808 trains, 346,404 route-stop rows, and 30,232 running-day rows. Existing DB had no trains; invalid rows were excluded as recorded above. |
+| Read-after-write database verifier | `npm.cmd run verify:train-data` | **PASS:** all eligible stations/trains/routes/weekdays matched source; 0 missing records, name conflicts, route/day mismatches, duplicate station/train keys, or route/running-day FK violations. |
+| Database-backed HTTP search | Read-only `supertest` request to `GET /api/trains/search` using imported route/date | **PASS:** HTTP 200; returned train 01101 for LTT–VVH on 2026-11-22. `scheduleId: null`, `availableSeats: 0`, `bookable: false`, as expected without configured inventory. |
+| Route-scoped booking seed | Dry run and apply via `npm.cmd run seed:booking-demo -- --source SBC --destination MYS --days 30` plus `--apply --confirm-simulated` | **PASS:** planned and inserted 532 weekday-valid schedules, 3,192 fares, 3,192 coaches, and 31,920 seats. All values are simulated project data. A second apply inserted zero rows and skipped all 532 schedules with existing inventory. |
+| Seeded search and inventory APIs | HTTP search, class, fare, and seat-map requests for SBC–MYS on 2026-11-19 | **PASS:** 17 distinct trains and 102 bookable class rows (six supported classes per train); selected class returned ten available seats and its stored fare. |
+| Full isolated MySQL HTTP lifecycle and concurrency integration | Guarded runner against `railway_reservation_issue10_test` using local credentials loaded from `backend/.env`; `node --test integration/mysql-inventory.integration.js` | **PASS: 1 integration test.** Actual registration/login, search, classes, fare, seat map, passenger booking, successful/failed simulated payment, PNR/history/ticket retrieval, refund preview, cancellation/seat release, passenger/admin authorization, same-seat concurrency, and rollback passed. Schema was created only after confirming it was absent; test fixture rows were cleaned. Development DB booking count remained zero. |
+| Isolated MySQL schema after integration | Read-only table and row-count inspection | **PASS:** expected 15 InnoDB tables remain in the dedicated test schema and all fixture tables contain zero rows. The schema was not dropped or reset. |
+| Backend regression suite | `cd backend; npm.cmd test` | **PASS: 205 tests, 0 failures, 0 skipped.** |
+| Git / CI | `git status --short --branch` | Local branch `codex/train-data-integration` is based on `d3641dd`; changes remain uncommitted and unpushed. No new CI run exists. |
+
+The import and verifier results apply only to the confirmed local development
+database. SBC–MYS schedules, fares, coaches, and seats created by the optional
+seed are simulated project inventory. Other route pairs remain route-only until
+separately seeded or configured through the administrator page. The MySQL
+lifecycle suite used only its isolated local test schema; it did not create
+bookings in the development database.

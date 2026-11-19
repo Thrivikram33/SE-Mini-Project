@@ -1,6 +1,7 @@
 const path = require('node:path')
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') })
 const pool = require('../src/config/db')
+const { assertDevelopmentTarget, DATABASE_NAME } = require('./developmentDatabase')
 
 async function columnExists(connection, table, column) {
   const [[row]] = await connection.execute(
@@ -33,11 +34,12 @@ async function indexExists(connection, table, name) {
 }
 
 async function main() {
+  assertDevelopmentTarget()
   const connection = await pool.getConnection()
   try {
     const [[database]] = await connection.query('SELECT DATABASE() AS name')
-    if (database.name !== 'railway_reservation') {
-      throw new Error(`Refusing to migrate unexpected database "${database.name}". Expected "railway_reservation".`)
+    if (database.name !== DATABASE_NAME) {
+      throw new Error(`Refusing to migrate unexpected database "${database.name}". Expected "${DATABASE_NAME}".`)
     }
 
     const requiredTables = ['bookings', 'passengers', 'booking_seats', 'stations']

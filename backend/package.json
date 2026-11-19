@@ -14,6 +14,13 @@
     "benchmark:booking": "node scripts/benchmark-booking.js",
     "monitor:availability": "node scripts/monitor-availability.js",
     "report:availability": "node scripts/monitor-availability.js --report",
+    "import:stations": "node scripts/import-stations.js",
+    "import:trains": "node scripts/import-trains.js",
+    "migrate:initial": "node scripts/migrate-initial-schema.js",
+    "migrate:train-days": "node scripts/migrate-train-days.js",
+    "migrate:train-search-indexes": "node scripts/migrate-train-search-indexes.js",
+    "verify:train-data": "node scripts/verify-train-dataset.js",
+    "seed:booking-demo": "node scripts/generate-imported-schedules.js",
     "seed:imported-trains": "node scripts/generate-imported-schedules.js",
     "migrate:booking": "node scripts/migrate-booking-schema.js"
   },

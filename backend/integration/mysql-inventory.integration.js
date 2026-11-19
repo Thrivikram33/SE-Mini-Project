@@ -5,6 +5,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const Module = require('node:module')
 const mysql = require('mysql2/promise')
+const supertest = require('supertest')
 
 const REQUIRED_ENV = [
   'RRS_MYSQL_TEST_HOST',
@@ -54,6 +55,25 @@ try {
 }
 const { createAdminManagementService } = require('../src/services/adminManagementService')
 
+function loadTestApplication() {
+  const databaseModulePath = require.resolve('../src/config/db')
+  const previousDatabaseModule = require.cache[databaseModulePath]
+  require.cache[databaseModulePath] = {
+    id: databaseModulePath,
+    filename: databaseModulePath,
+    loaded: true,
+    exports: pool,
+    children: [],
+    paths: [],
+  }
+  try {
+    return require('../src/server')
+  } finally {
+    if (previousDatabaseModule) require.cache[databaseModulePath] = previousDatabaseModule
+    else delete require.cache[databaseModulePath]
+  }
+}
+
 const fixture = {
   token: crypto.randomBytes(4).toString('hex').toUpperCase(),
   created: {},
@@ -64,8 +84,10 @@ const fixture = {
 }
 const expectedTables = [
   'audit_logs', 'booking_seats', 'bookings', 'cancellations', 'coaches', 'fares', 'payments',
-  'passengers', 'route_stops', 'schedules', 'seats', 'stations', 'trains', 'users',
-]
+  'passengers', 'route_stops', 'schedules', 'seats', 'stations', 'trains',
+  'train_running_days', 'users',
+].sort()
+const initialTables = expectedTables.filter((table) => table !== 'train_running_days').sort()
 
 async function applySchemaToDedicatedTestDatabase() {
   const [[server]] = await pool.query('SELECT DATABASE() AS databaseName, @@hostname AS hostname, @@port AS port')
@@ -91,7 +113,9 @@ async function applySchemaToDedicatedTestDatabase() {
      FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY TABLE_NAME`,
   )
   const existingNames = existingTables.map((table) => table.tableName).sort()
-  if (existingNames.length && JSON.stringify(existingNames) !== JSON.stringify(expectedTables)) {
+  if (existingNames.length &&
+      JSON.stringify(existingNames) !== JSON.stringify(initialTables) &&
+      JSON.stringify(existingNames) !== JSON.stringify(expectedTables)) {
     throw new Error('The isolated Issue #10 database contains an unexpected or partial table set; refusing schema changes.')
   }
   if (!existingNames.length) {
@@ -100,7 +124,7 @@ async function applySchemaToDedicatedTestDatabase() {
     throw new Error('The isolated Issue #10 database contains a non-InnoDB table; refusing integration tests.')
   }
 
-  const pendingCounts = await Promise.all(expectedTables.map(async (table) => {
+  const pendingCounts = await Promise.all(initialTables.map(async (table) => {
     const [[row]] = await pool.query(`SELECT COUNT(*) AS count FROM \`${table}\``)
     return { table, count: Number(row.count) }
   }))
@@ -201,6 +225,38 @@ async function applySchemaToDedicatedTestDatabase() {
       'The isolated test database has a partial booking journey migration; refusing to guess its state.',
     )
   }
+
+  const runningDaysMigrationPath = path.resolve(
+    __dirname,
+    '../../database/migrations/006_train_running_days.sql',
+  )
+  const runningDaysMigration = fs.readFileSync(runningDaysMigrationPath, 'utf8')
+    .replace(/^\s*--.*$/gm, '')
+    .trim()
+  assert.match(runningDaysMigration, /^CREATE\s+TABLE\s+train_running_days\b/i)
+  const [[{ runningDaysTable }]] = await pool.query(
+    `SELECT COUNT(*) AS runningDaysTable
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE() AND table_name = 'train_running_days'`,
+  )
+  if (Number(runningDaysTable) === 0) {
+    await pool.query(runningDaysMigration)
+  } else {
+    const [[{ runningDaysEngine }]] = await pool.query(
+      `SELECT engine AS runningDaysEngine
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'train_running_days'`,
+    )
+    if (runningDaysEngine !== 'InnoDB') {
+      throw new Error('The isolated test database has a non-InnoDB train_running_days table; refusing integration tests.')
+    }
+  }
+  const [[{ runningDayCount }]] = await pool.query(
+    'SELECT COUNT(*) AS runningDayCount FROM train_running_days',
+  )
+  if (Number(runningDayCount) !== 0) {
+    throw new Error('The isolated test database has train_running_days fixtures; inspect it before running tests.')
+  }
 }
 
 async function insertFixture() {
@@ -244,6 +300,35 @@ async function insertFixture() {
   )
   fixture.created.scheduleId = schedule.insertId
   fixture.created.date = date
+
+  const [routeOnlySource] = await pool.execute(
+    'INSERT INTO stations (code, name, city) VALUES (?, ?, ?)',
+    [`R4${token.slice(0, 4)}A`, `Route Only Source ${token}`, 'Integration Test'],
+  )
+  fixture.created.routeOnlySourceId = routeOnlySource.insertId
+  const [routeOnlyDestination] = await pool.execute(
+    'INSERT INTO stations (code, name, city) VALUES (?, ?, ?)',
+    [`R4${token.slice(0, 4)}B`, `Route Only Destination ${token}`, 'Integration Test'],
+  )
+  fixture.created.routeOnlyDestinationId = routeOnlyDestination.insertId
+  fixture.created.routeOnlySourceCode = `R4${token.slice(0, 4)}A`
+  fixture.created.routeOnlyDestinationCode = `R4${token.slice(0, 4)}B`
+  const [routeOnlyTrain] = await pool.execute(
+    'INSERT INTO trains (train_number, train_name, active) VALUES (?, ?, TRUE)',
+    [`R4${token.slice(0, 8)}`, `Route Only ${token}`],
+  )
+  fixture.created.routeOnlyTrainId = routeOnlyTrain.insertId
+  await pool.execute(
+    `INSERT INTO route_stops
+       (train_id, station_id, sequence_no, departure_time, arrival_time, day_offset)
+     VALUES (?, ?, 1, '11:00:00', NULL, 0), (?, ?, 2, NULL, '12:00:00', 0)`,
+    [routeOnlyTrain.insertId, routeOnlySource.insertId, routeOnlyTrain.insertId, routeOnlyDestination.insertId],
+  )
+  const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay()
+  await pool.execute(
+    'INSERT INTO train_running_days (train_id, weekday) VALUES (?, ?)',
+    [routeOnlyTrain.insertId, weekday],
+  )
 
   const [coach] = await pool.execute(
     `INSERT INTO coaches (schedule_id, class_type, coach_number)
@@ -305,17 +390,16 @@ async function insertFixture() {
 async function cleanupFixture() {
   const ids = fixture.created
   // Delete only records inserted by this test, in FK dependency order.
-  if (ids.adminUserId) {
-    await pool.execute('DELETE FROM audit_logs WHERE actor_user_id = ?', [ids.adminUserId])
-  }
+  const actorIds = [...new Set([ids.adminUserId, ids.apiUserId].filter(Boolean))]
+  for (const actorId of actorIds) await pool.execute('DELETE FROM audit_logs WHERE actor_user_id = ?', [actorId])
   const bookingIds = Object.values(fixture.bookingIds)
   if (bookingIds.length) {
     const placeholders = bookingIds.map(() => '?').join(', ')
-    if (ids.userId) {
+    for (const userId of [ids.userId, ids.apiUserId].filter(Boolean)) {
       await pool.execute(
         `DELETE FROM audit_logs
          WHERE actor_user_id = ? AND entity_type = 'booking' AND entity_id IN (${placeholders})`,
-        [ids.userId, ...bookingIds.map(String)],
+        [userId, ...bookingIds.map(String)],
       )
     }
     await pool.execute(`DELETE FROM cancellations WHERE booking_id IN (${placeholders})`, bookingIds)
@@ -333,10 +417,15 @@ async function cleanupFixture() {
   if (ids.trainId) await pool.execute('DELETE FROM trains WHERE train_id = ?', [ids.trainId])
   if (ids.adminTrainId) await pool.execute('DELETE FROM route_stops WHERE train_id = ?', [ids.adminTrainId])
   if (ids.adminTrainId) await pool.execute('DELETE FROM trains WHERE train_id = ?', [ids.adminTrainId])
+  if (ids.routeOnlyTrainId) await pool.execute('DELETE FROM route_stops WHERE train_id = ?', [ids.routeOnlyTrainId])
+  if (ids.routeOnlyTrainId) await pool.execute('DELETE FROM trains WHERE train_id = ?', [ids.routeOnlyTrainId])
   if (ids.sourceId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.sourceId])
   if (ids.destinationId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.destinationId])
-  if (ids.userId) await pool.execute('DELETE FROM users WHERE user_id = ?', [ids.userId])
-  if (ids.adminUserId) await pool.execute('DELETE FROM users WHERE user_id = ?', [ids.adminUserId])
+  if (ids.routeOnlySourceId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.routeOnlySourceId])
+  if (ids.routeOnlyDestinationId) await pool.execute('DELETE FROM stations WHERE station_id = ?', [ids.routeOnlyDestinationId])
+  for (const userId of [...new Set([ids.userId, ids.adminUserId, ids.apiUserId].filter(Boolean))]) {
+    await pool.execute('DELETE FROM users WHERE user_id = ?', [userId])
+  }
 }
 
 async function getAvailability() {
@@ -363,6 +452,23 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
   try {
     await applySchemaToDedicatedTestDatabase()
     await insertFixture()
+
+    const routeOnlyOptions = await searchTrains({
+      source: fixture.created.routeOnlySourceCode,
+      destination: fixture.created.routeOnlyDestinationCode,
+      date: fixture.created.date,
+    })
+    assert.equal(routeOnlyOptions.length, 1)
+    assert.equal(routeOnlyOptions[0].scheduleId, null)
+    assert.equal(routeOnlyOptions[0].classType, null)
+    assert.equal(routeOnlyOptions[0].fare, null)
+    assert.equal(routeOnlyOptions[0].availableSeats, 0)
+    assert.equal(routeOnlyOptions[0].bookable, false)
+    assert.deepEqual(await searchTrains({
+      source: fixture.created.routeOnlyDestinationCode,
+      destination: fixture.created.routeOnlySourceCode,
+      date: fixture.created.date,
+    }), [])
 
     await assert.rejects(
       pool.execute(
@@ -942,6 +1048,127 @@ test('real MySQL inventory and unique active-seat constraint remain consistent',
       active: false,
     })
     assert.equal((await searchManaged(updatedDate)).some((option) => Number(option.scheduleId) === managedSchedule.scheduleId), false)
+
+    // Exercise the actual Express registration, login, discovery, fare,
+    // booking, ticket, refund preview, cancellation, and role-protected APIs
+    // against this isolated MySQL schema.
+    const app = loadTestApplication()
+    const passengerAgent = supertest.agent(app)
+    const apiPassword = `Api-flow-${fixture.token}-Pass!`
+    const apiEmail = `api-flow-${fixture.token.toLowerCase()}@example.invalid`
+    const registration = await passengerAgent.post('/api/auth/register').send({
+      name: 'API Flow Passenger',
+      email: apiEmail,
+      password: apiPassword,
+    })
+    assert.equal(registration.status, 201)
+    fixture.created.apiUserId = registration.body.passenger.userId
+    assert.equal(registration.body.passenger.role, 'PASSENGER')
+
+    const login = await passengerAgent.post('/api/auth/login').send({ email: apiEmail, password: apiPassword })
+    assert.equal(login.status, 200)
+    assert.equal(login.body.user.role, 'PASSENGER')
+    assert.equal((await passengerAgent.get('/api/auth/me')).body.user.userId, fixture.created.apiUserId)
+    assert.equal((await supertest(app).get('/api/admin/trains')).status, 401)
+    assert.equal((await passengerAgent.get('/api/admin/trains')).status, 403)
+
+    const apiSeat = await pool.execute(
+      "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'APIFLOW', 'LOWER', 'AVAILABLE')",
+      [fixture.created.coachId],
+    )
+    fixture.created.apiSeatId = apiSeat[0].insertId
+
+    const apiSearch = await passengerAgent.get('/api/trains/search').query({
+      source: fixture.created.sourceCode,
+      destination: fixture.created.destinationCode,
+      date: fixture.created.date,
+    })
+    assert.equal(apiSearch.status, 200)
+    const apiOption = apiSearch.body.trains.find(option => Number(option.scheduleId) === fixture.created.scheduleId)
+    assert.ok(apiOption)
+    assert.equal(apiOption.classType, 'SL')
+    assert.equal(apiOption.bookable, true)
+    assert.equal(apiOption.fare.amount, 100)
+
+    const apiClasses = await passengerAgent.get(`/api/schedules/${fixture.created.scheduleId}/classes`)
+    assert.equal(apiClasses.status, 200)
+    assert.equal(apiClasses.body.classes.some(item => item.classType === 'SL' && Number(item.availableSeats) > 0), true)
+    const apiSeatMap = await passengerAgent.get(`/api/schedules/${fixture.created.scheduleId}/seats`).query({ classType: 'SL' })
+    assert.equal(apiSeatMap.status, 200)
+    assert.equal(apiSeatMap.body.seats.some(item => Number(item.seatId) === fixture.created.apiSeatId && item.available), true)
+    const apiFare = await passengerAgent.post('/api/fare/calculate').send({
+      scheduleId: fixture.created.scheduleId,
+      classType: 'SL',
+      passengerCount: 1,
+    })
+    assert.equal(apiFare.status, 200)
+    assert.equal(apiFare.body.fare.totalFare, '100.00')
+
+    const apiBookingRequest = (seatId, paymentOutcome = 'success') => ({
+      scheduleId: fixture.created.scheduleId,
+      classType: 'SL',
+      source: fixture.created.sourceCode,
+      destination: fixture.created.destinationCode,
+      seatIds: [seatId],
+      passengers: [{ name: 'API Flow Passenger', age: 28, gender: 'UNDISCLOSED' }],
+      paymentOutcome,
+    })
+    const apiBookingResponse = await passengerAgent.post('/api/bookings').send(apiBookingRequest(fixture.created.apiSeatId))
+    assert.equal(apiBookingResponse.status, 201)
+    const apiBooking = apiBookingResponse.body.booking
+    fixture.bookingIds.apiConfirmed = apiBooking.bookingId
+    assert.equal(apiBooking.status, 'CONFIRMED')
+    assert.match(apiBooking.pnr, /^[A-Z0-9]{12}$/)
+
+    const afterBookingSeatMap = await passengerAgent.get(`/api/schedules/${fixture.created.scheduleId}/seats`).query({ classType: 'SL' })
+    assert.equal(afterBookingSeatMap.body.seats.find(item => Number(item.seatId) === fixture.created.apiSeatId).available, false)
+    const history = await passengerAgent.get('/api/bookings')
+    assert.equal(history.status, 200)
+    assert.equal(history.body.bookings.some(item => item.pnr === apiBooking.pnr), true)
+    const ticket = await passengerAgent.get(`/api/bookings/${apiBooking.pnr.toLowerCase()}`)
+    assert.equal(ticket.status, 200)
+    assert.equal(ticket.body.booking.pnr, apiBooking.pnr)
+
+    const refundPreview = await passengerAgent.get(`/api/bookings/${apiBooking.bookingId}/refund-preview`)
+    assert.equal(refundPreview.status, 200)
+    const cancellation = await passengerAgent.post(`/api/bookings/${apiBooking.bookingId}/cancel`)
+    assert.equal(cancellation.status, 200)
+    assert.equal(cancellation.body.cancellation.status, 'CANCELLED')
+    assert.equal(Number(cancellation.body.cancellation.refundAmount), Number(refundPreview.body.refund.refundAmount))
+    assert.equal(cancellation.body.cancellation.releasedSeatCount, 1)
+    const afterCancellationSeatMap = await passengerAgent.get(`/api/schedules/${fixture.created.scheduleId}/seats`).query({ classType: 'SL' })
+    assert.equal(afterCancellationSeatMap.body.seats.find(item => Number(item.seatId) === fixture.created.apiSeatId).available, true)
+
+    const failedSeat = await pool.execute(
+      "INSERT INTO seats (coach_id, seat_number, berth_type, status) VALUES (?, 'APIFAIL', 'UPPER', 'AVAILABLE')",
+      [fixture.created.coachId],
+    )
+    fixture.created.apiFailedSeatId = failedSeat[0].insertId
+    const apiPaymentFailure = await passengerAgent.post('/api/bookings').send(apiBookingRequest(fixture.created.apiFailedSeatId, 'failure'))
+    assert.equal(apiPaymentFailure.status, 402)
+    const [[failedApiBooking]] = await pool.execute(
+      `SELECT booking_id AS bookingId, pnr, status FROM bookings
+       WHERE user_id = ? AND schedule_id = ? AND status = 'PAYMENT_FAILED'
+       ORDER BY booking_id DESC LIMIT 1`,
+      [fixture.created.apiUserId, fixture.created.scheduleId],
+    )
+    assert.ok(failedApiBooking)
+    assert.equal(failedApiBooking.pnr, null)
+    fixture.bookingIds.apiPaymentFailed = failedApiBooking.bookingId
+    const [[failedApiAllocation]] = await pool.execute(
+      'SELECT allocation_status AS status FROM booking_seats WHERE booking_id = ?',
+      [failedApiBooking.bookingId],
+    )
+    assert.equal(failedApiAllocation.status, 'RELEASED')
+    const afterFailureSeatMap = await passengerAgent.get(`/api/schedules/${fixture.created.scheduleId}/seats`).query({ classType: 'SL' })
+    assert.equal(afterFailureSeatMap.body.seats.find(item => Number(item.seatId) === fixture.created.apiFailedSeatId).available, true)
+
+    await pool.execute('UPDATE users SET role = ? WHERE user_id = ?', ['ADMIN', fixture.created.apiUserId])
+    const adminAgent = supertest.agent(app)
+    const adminLogin = await adminAgent.post('/api/auth/login').send({ email: apiEmail, password: apiPassword })
+    assert.equal(adminLogin.status, 200)
+    assert.equal(adminLogin.body.user.role, 'ADMIN')
+    assert.equal((await adminAgent.get('/api/admin/trains')).status, 200)
   } finally {
     await cleanupFixture()
     await pool.end()
