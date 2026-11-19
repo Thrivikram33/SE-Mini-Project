@@ -75,7 +75,7 @@ jobs:
         run: npm test
 
       - name: Check demo seed entry points
-        run: node --check seed-train-demo.js && node --check setup-train-demo.js
+        run: node --check seed-train-demo.js && node --check setup-train-demo.js && node --check scripts/import-stations.js && node --check scripts/import-trains.js && node --check scripts/generate-imported-schedules.js
 
       - name: Run isolated MySQL inventory and concurrency tests
         env:
