@@ -17,6 +17,7 @@ export default function SeatSelectionPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const scheduleId = searchParams.get('scheduleId') || ''
+  const hasValidScheduleId = /^[1-9]\d*$/.test(scheduleId)
   const [classes, setClasses] = useState([])
   const [classType, setClassType] = useState('')
   const [seats, setSeats] = useState([])
@@ -45,10 +46,7 @@ export default function SeatSelectionPage() {
 
 
   useEffect(() => {
-    if (!/^[1-9]\d*$/.test(scheduleId)) {
-      setError('No valid journey was selected. Return to train search and choose a train.')
-      return
-    }
+    if (!hasValidScheduleId) return
 
     const controller = new AbortController()
     async function loadClasses() {
